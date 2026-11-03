@@ -183,6 +183,26 @@ The Compose setup starts a Minecraft Java server alongside Mindcraft. It uses th
 > docker compose up -d --force-recreate minecraft
 > ```
 
+To create a named world backup snapshot from the current game state, run:
+
+```bash
+./tasks/save_world_backup.sh save <backup-name>
+```
+
+Example:
+
+```bash
+./tasks/save_world_backup.sh save ender-dragon-before-fight
+```
+
+The script stores backups in `minecraft_backups/`, and if the Minecraft container is running it flushes world state with `save-all` before archiving.
+
+To restore a named backup, run:
+
+```bash
+./tasks/save_world_backup.sh restore <backup-name>
+```
+
 When running Mindcraft in Docker to connect to a Minecraft server on the host instead, use the special host address `host.docker.internal` to reach the host from inside the container. Set `"host": "host.docker.internal"` in your [settings.js](settings.js), or set it in `SETTINGS_JSON` when using Docker Compose:
 
 ```javascript
