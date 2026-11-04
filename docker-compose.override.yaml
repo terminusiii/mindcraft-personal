@@ -1,0 +1,33 @@
+services:
+  mindcraft:
+    user: "1000:1000"
+    # Enable insecure coding explicitly for this test
+    environment:
+      INSECURE_CODING: "1"
+      NODE_OPTIONS: "--dns-result-order=ipv4first"
+      SETTINGS_JSON: |
+        {
+          "auto_open_ui": false,
+          "host": "minecraft",
+          "port": 25565,
+          "auth": "offline",
+          "allow_insecure_coding": true,
+          "code_timeout_mins": 2
+        }
+
+    # Security hardening
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 256
+    mem_limit: 4g
+    cpus: 2.0
+
+    # Keep network but avoid exposing extra surfaces
+    ports: !override
+      - "8080:8080"
+      - "3000-3003:3000-3003"

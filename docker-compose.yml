@@ -1,14 +1,43 @@
 services:
+  minecraft:
+    image: itzg/minecraft-server:java21
+    ports:
+      - "127.0.0.1:25565:25565"
+    environment:
+      EULA: "TRUE"
+      TYPE: "VANILLA"
+      VERSION: "1.21.8"
+      MEMORY: "3G"
+      MODE: "survival"
+      DIFFICULTY: "easy"
+      MAX_PLAYERS: "5"
+      ONLINE_MODE: "FALSE"
+      ENFORCE_SECURE_PROFILE: "FALSE"
+      VIEW_DISTANCE: "8"
+      SIMULATION_DISTANCE: "6"
+      EXTRA_ARGS: "--safeMode"
+    volumes:
+      - ${MINECRAFT_DATA_DIR:-./minecraft-data}:/data
+    restart: unless-stopped
+    healthcheck:
+      test: mc-health
+      start_period: 1m
+      interval: 5s
+      retries: 20
+
   mindcraft:
     build: .
     environment:
       SETTINGS_JSON: |
-        {"auto_open_ui": false}
+        {"auto_open_ui": false, "host": "minecraft", "port": 25565}
     volumes:
       - ./settings.js:/app/settings.js
       - ./keys.json:/app/keys.json
       - ./profiles:/app/profiles
       - ./bots:/app/bots
+    depends_on:
+      minecraft:
+        condition: service_healthy
     ports:
       - "3000-3003:3000-3003" # see the view from the camera mounted on your bot head: http://localhost:3000/
       - 8080 # Mindserver port
