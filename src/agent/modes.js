@@ -46,9 +46,19 @@ const modes_list = [
                     await skills.moveAway(bot, 2);
                 });
             }
-            else if (block.name === 'lava' || block.name === 'fire' ||
+            else if (bot.entity.isInLava || block.name === 'lava' || block.name === 'fire' ||
                 blockAbove.name === 'lava' || blockAbove.name === 'fire') {
                 say(agent, 'I\'m on fire!');
+                // water evaporates in the Nether, so climb out of lava onto safe ground there
+                const inNether = String(bot.game?.dimension).includes('nether');
+                const inLava = bot.entity.isInLava || block.name === 'lava' || blockAbove.name === 'lava';
+                if (inLava && inNether) {
+                    execute(this, agent, async () => {
+                        if (await skills.moveToSafeGround(bot, null, 10)) say(agent, 'Got out of the lava!');
+                        else await skills.moveAway(bot, 5);
+                    });
+                    return;
+                }
                 // if you have a water bucket, use it
                 let waterBucket = bot.inventory.findInventoryItem('water_bucket');
                 if (waterBucket) {
@@ -63,6 +73,10 @@ const modes_list = [
                         if (waterBucket) {
                             let success = await skills.placeBlock(bot, 'water_bucket', block.position.x, block.position.y, block.position.z);
                             if (success) say(agent, 'Placed some water, ahhhh that\'s better!');
+                            return;
+                        }
+                        if (inLava && await skills.moveToSafeGround(bot, null, 10)) {
+                            say(agent, 'Got out of the lava!');
                             return;
                         }
                         let nearestWater = world.getNearestBlock(bot, 'water', 20);
@@ -160,7 +174,7 @@ const modes_list = [
         on: true,
         active: false,
         update: async function (agent) {
-            const enemy = world.getNearestEntityWhere(agent.bot, entity => mc.isHostile(entity), 8);
+            const enemy = world.getNearestEntityWhere(agent.bot, entity => mc.isHostile(entity) && !skills.isUnsafeCombatTarget(agent.bot, entity), 8);
             if (enemy && await world.isClearPath(agent.bot, enemy)) {
                 say(agent, `Fighting ${enemy.name}!`);
                 execute(this, agent, async () => {

@@ -77,6 +77,19 @@ without a nearby portal, with all entries obstructed, and `!stop` during approac
 or the transfer wait. On a local server with Nether travel disabled, verify the
 bounded failure instead of a false success.
 
+### Lava safety
+
+When lava is loaded within 32 blocks, navigation and combat chasing avoid parkour and
+sprinting, strongly prefer paths away from lava edges, and refuse to place blocks next to
+lava or dig directly above it. Before fighting, the bot moves to safe footing (solid floor,
+no adjacent lava). It doesn't chase enemies standing near lava, and it disengages if no
+safe footing is reachable. If the bot is in lava in the Nether, where water evaporates, it
+climbs onto the nearest safe ground. In the Overworld it tries to get out of the lava before
+using water. These are mitigations: knockback can still push the bot into lava. Run
+`node --experimental-vm-modules --test tests/lava-safety.test.js` for the mocked tests. To
+test live on a copy of a world, have the bot fight a magma cube near a Nether lava lake and
+check that it backs away from the edge instead of following the cube.
+
 Run the isolated portal regression tests with
 `node --experimental-vm-modules --test tests/enter-nether.test.js`.
 They use mocked Mineflayer APIs and do not require a running server or installed
