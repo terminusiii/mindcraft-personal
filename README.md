@@ -46,6 +46,12 @@ Do not connect this bot to public servers with coding enabled. This project allo
 
 6. Run `node main.js` from the installed directory
 
+The default setup starts two bots, `andy` and `jane`, both using `gpt-5.4-mini`.
+Andy uses `andy.json`; Jane uses `profiles/jane.json`, which is included in the
+Docker Compose profiles mount. With multiple bots running, they only respond to
+whispers, not public chat. Address each bot with `/msg andy <message>` or
+`/msg jane <message>`, for example `/msg jane !enterNether`.
+
 ### Entering a Nether portal
 
 When you intentionally want the bot to travel to the Nether, send `!enterNether`
