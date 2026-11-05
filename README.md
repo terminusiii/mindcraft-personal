@@ -40,8 +40,31 @@ Do not connect this bot to public servers with coding enabled. This project allo
 4. In terminal/command prompt, run `npm install` from the installed directory
 
 5. Start a minecraft world and open it to LAN on localhost port `55916`
+```bash
+(base) melinda2@Peter4Ever:~/minecraft-server$ ./start_server.sh
+```
 
 6. Run `node main.js` from the installed directory
+
+### Viewing the bot in a web browser
+
+Mindcraft includes a Prismarine Viewer that shows the Minecraft world from the bot's first-person perspective.
+
+1. Set `"render_bot_view": true` in [settings.js](settings.js).
+2. Start or restart Mindcraft and wait for the bot to join the Minecraft server and spawn.
+3. Open [http://localhost:3000](http://localhost:3000) in your browser. Additional bots use ports `3001`, `3002`, and so on.
+
+The viewer is also embedded in the Mindcraft dashboard at [http://localhost:8080](http://localhost:8080) when using the default dashboard port. You do not need to enable `allow_vision` to use the browser viewer.
+
+If Mindcraft runs on a remote machine through VS Code, forward port `3000` in the **Ports** panel and open its forwarded address. Forward `8080` too if you want the dashboard, and forward the viewer ports for any additional bots. Keep forwarded ports private; the dashboard expects each viewer at `localhost` on its original port.
+
+If the viewer reports "connection refused", check that `render_bot_view` is enabled, restart Mindcraft after changing it, and confirm the bot has spawned. For Docker, the viewer port must also be published; the provided Compose setup publishes ports `3000` through `3003`.
+
+### Debugging in VS Code
+
+The **Start Mindcraft bot** launch configuration selects Node.js **20.20.2** through nvm instead of the system Node executable. Install it with `nvm install 20.20.2` if needed, then start debugging with **F5**. For terminal runs, use `nvm use 20.20.2` before `node main.js`.
+
+An `Unexpected token '.'` error on optional chaining (`?.`) indicates an outdated Node runtime. Check `node --version`; the system `/usr/bin/node` may differ from the version installed through nvm.
 
 If you encounter issues, check the [FAQ](https://github.com/mindcraft-bots/mindcraft/blob/main/FAQ.md) or find support on [discord](https://discord.gg/mp73p35dzC). We are currently not very responsive to github issues. To run tasks please refer to [Minecollab Instructions](minecollab.md#installation)
 
@@ -147,10 +170,40 @@ docker build -t mindcraft . && docker run --rm --add-host=host.docker.internal:h
 ```
 or simply
 ```bash
-docker-compose up --build
+docker compose up --build
 ```
 
-When running in docker, if you want the bot to join your local minecraft server, you have to use a special host address `host.docker.internal` to call your localhost from inside your docker container. Put this into your [settings.js](settings.js):
+The Compose setup starts a Minecraft Java server alongside Mindcraft. It uses the `itzg/minecraft-server` image and the settings shown above, waits for the server to become healthy before starting Mindcraft, and stores world data in `minecraft-data/`. Stop any separately running server first to avoid a port conflict. To reuse an existing world, set `MINECRAFT_DATA_DIR` to that server's `data` directory; for example: `MINECRAFT_DATA_DIR=/path/to/minecraft-server/data docker compose up --build`. The server is available on `127.0.0.1:25565` from the host. To stop both services, run `docker compose down`; the world data is retained.
+
+> [!Note]
+> The Minecraft server container requires EULA acceptance. If it gets stuck restarting, set EULA in the mounted data directory and recreate the container:
+> ```bash
+> mkdir -p minecraft-data
+> echo 'eula=true' > minecraft-data/eula.txt
+> docker compose up -d --force-recreate minecraft
+> ```
+
+To create a named world backup snapshot from the current game state, run:
+
+```bash
+./tasks/save_world_backup.sh save <backup-name>
+```
+
+Example:
+
+```bash
+./tasks/save_world_backup.sh save ender-dragon-before-fight
+```
+
+The script stores backups in `minecraft_backups/`, and if the Minecraft container is running it flushes world state with `save-all` before archiving.
+
+To restore a named backup, run:
+
+```bash
+./tasks/save_world_backup.sh restore <backup-name>
+```
+
+When running Mindcraft in Docker to connect to a Minecraft server on the host instead, use the special host address `host.docker.internal` to reach the host from inside the container. Set `"host": "host.docker.internal"` in your [settings.js](settings.js), or set it in `SETTINGS_JSON` when using Docker Compose:
 
 ```javascript
 "host": "host.docker.internal", // instead of "localhost", to join your local minecraft from inside the docker container
@@ -232,7 +285,7 @@ While AI generated code is allowed, please vet it carefully. Submitting tons of 
 Some of the node modules that we depend on have bugs in them. To add a patch, change your local node module file and run `npx patch-package [package-name]`
 
 ## Development Team
-Thanks to all who contributed to the project, especially the official development team: [@MaxRobinsonTheGreat](https://github.com/MaxRobinsonTheGreat), [@kolbytn](https://github.com/kolbytn), [@icwhite](https://github.com/icwhite), [@Sweaterdog](https://github.com/Sweaterdog), [@Ninot1Quyi](https://github.com/Ninot1Quyi), [@riqvip](https://github.com/riqvip), [@uukelele-scratch](https://github.com/uukelele-scratch), [@mrelmida](https://github.com/mrelmida)
+Thanks to all who contributed to the project, especially the official development team: [@MaxRobinsonTheGreat](https://github.com/MaxRobinsonTheGreat), [@kolbytn](https://github.com/kolbytn), [@icwhite](https://github.com/icwhite), [@Sweaterdog](https://github.com/Sweaterdog), [@Ninot1Quyi](https://github.com/Ninot1Quyi), [@riqvip](https://github.com/riqvip), [@uukelele](https://github.com/uukelele), [@mrelmida](https://github.com/mrelmida)
 
 
 ## Citation:
