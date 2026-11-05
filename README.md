@@ -46,6 +46,35 @@ Do not connect this bot to public servers with coding enabled. This project allo
 
 6. Run `node main.js` from the installed directory
 
+### Entering a Nether portal
+
+When you intentionally want the bot to travel to the Nether, send `!enterNether`
+in chat (or explicitly ask the bot to enter the Nether). This risky action is
+human-requested, not an autonomous travel goal. `!searchForBlock("nether_portal", 64)`
+only approaches a portal; it deliberately stops several blocks away.
+
+`!enterNether` searches active portal blocks within 64 loaded blocks, selects a
+reachable bottom entry with solid support and portal headroom, and walks into
+that block without digging or building. It allows up to 30 seconds to reach the
+portal and then up to 15 seconds for transfer. Success requires the bot's dimension
+to become the Nether, not merely reaching a portal block. Missing or unreachable
+portals and timeouts are reported; if already in the Nether, it does not travel
+back. Send `!stop` to interrupt. Safety modes can still interrupt dangerous travel.
+
+For a local WSL2 smoke test, start your usual local Minecraft server and Mindcraft
+(`nvm use 20.20.2`, then `node main.js`). Use a copy of your test world and an active
+portal with a clear approach. From the Overworld, send `!enterNether` and confirm
+the bot stands inside the purple portal and reports success only after transfer.
+Repeat in the Nether to check the no-travel response. In the Overworld, also try
+without a nearby portal, with all entries obstructed, and `!stop` during approach
+or the transfer wait. On a local server with Nether travel disabled, verify the
+bounded failure instead of a false success.
+
+Run the isolated portal regression tests with
+`node --experimental-vm-modules --test tests/enter-nether.test.js`.
+They use mocked Mineflayer APIs and do not require a running server or installed
+game dependencies; the local smoke test is still needed to verify real movement.
+
 ### Viewing the bot in a web browser
 
 Mindcraft includes a Prismarine Viewer that shows the Minecraft world from the bot's first-person perspective.

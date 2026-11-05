@@ -1271,6 +1271,129 @@ export async function goToNearestBlock(bot, blockType,  min_distance=2, range=64
     return true;
 }
 
+export async function enterNether(bot) {
+    /**
+     * Enter a nearby active Nether portal only when explicitly requested by the human.
+     * Searches loaded blocks within 64 blocks without digging or building.
+     * @param {MinecraftBot} bot, reference to the minecraft bot.
+     * @returns {Promise<boolean>} true only after arriving in the Nether.
+     * @example
+     * await skills.enterNether(bot);
+     **/
+    const inNether = () => ['the_nether', 'minecraft:the_nether', 'nether'].includes(bot.game.dimension);
+    if (bot.interrupt_code) {
+        log(bot, 'Nether entry interrupted.');
+        return false;
+    }
+    if (inNether()) {
+        log(bot, 'Already in the Nether; no portal travel attempted.');
+        return false;
+    }
+    if (!['overworld', 'minecraft:overworld'].includes(bot.game.dimension)) {
+        log(bot, `Cannot enter the Nether from dimension ${bot.game.dimension}.`);
+        return false;
+    }
+
+    const entries = bot.findBlocks({
+        matching: block => block && block.name === 'nether_portal',
+        useExtraInfo: block => {
+            const below = bot.blockAt(block.position.offset(0, -1, 0));
+            const above = bot.blockAt(block.position.offset(0, 1, 0));
+            return below && below.name !== 'nether_portal' && below.boundingBox === 'block' &&
+                above && above.name === 'nether_portal';
+        },
+        maxDistance: 64,
+        count: 64
+    });
+    if (entries.length === 0) {
+        log(bot, 'No active Nether portal with a supported entry found within 64 loaded blocks.');
+        return false;
+    }
+    entries.sort((a, b) => a.distanceTo(bot.entity.position) - b.distanceTo(bot.entity.position));
+
+    const movements = new pf.Movements(bot);
+    movements.canDig = false;
+    movements.allow1by1towers = false;
+    movements.allowParkour = false;
+    movements.scafoldingBlocks = [];
+    const navigationDeadline = Date.now() + 30000;
+    let goal = null;
+    for (const pos of entries) {
+        if (bot.interrupt_code || Date.now() >= navigationDeadline) break;
+        const candidate = new pf.goals.GoalBlock(pos.x, pos.y, pos.z);
+        const search = bot.pathfinder.getPathFromTo(movements, bot.entity.position, candidate, { timeout: 200 });
+        for (const { result } of search) {
+            if (result.status === 'success') goal = candidate;
+            if (result.status !== 'partial') break;
+            await wait(bot, 1);
+            if (bot.interrupt_code || Date.now() >= navigationDeadline) break;
+        }
+        if (goal) break;
+        await wait(bot, 1);
+    }
+    if (bot.interrupt_code) {
+        log(bot, 'Nether entry interrupted.');
+        return false;
+    }
+    if (!goal) {
+        log(bot, 'No reachable Nether portal entry found without digging or building.');
+        return false;
+    }
+
+    let reached = false;
+    let noPath = false;
+    const onGoal = reachedGoal => { if (reachedGoal === goal) reached = true; };
+    const onPath = result => { if (result.status === 'noPath') noPath = true; };
+    bot.on('goal_reached', onGoal);
+    bot.on('path_update', onPath);
+    bot.modes.pause('unstuck');
+    try {
+        log(bot, `Entering Nether portal at ${goal.x}, ${goal.y}, ${goal.z}.`);
+        bot.pathfinder.setMovements(movements);
+        bot.pathfinder.setGoal(goal);
+        let portalDeadline = null;
+        while (true) {
+            if (bot.interrupt_code) {
+                log(bot, 'Nether entry interrupted.');
+                return false;
+            }
+            if (inNether()) {
+                log(bot, 'Successfully entered the Nether.');
+                return true;
+            }
+            if (!['overworld', 'minecraft:overworld'].includes(bot.game.dimension)) {
+                log(bot, `Nether entry failed: changed to unexpected dimension ${bot.game.dimension}.`);
+                return false;
+            }
+            if (noPath) {
+                log(bot, 'Nether portal entry is no longer reachable.');
+                return false;
+            }
+            if (reached && portalDeadline === null) {
+                if (bot.blockAt(bot.entity.position)?.name !== 'nether_portal') {
+                    log(bot, 'Navigation ended outside the Nether portal; entry failed.');
+                    return false;
+                }
+                portalDeadline = Date.now() + 15000;
+                log(bot, 'Inside the portal; waiting up to 15 seconds for Nether transfer.');
+            }
+            if (Date.now() >= (portalDeadline ?? navigationDeadline)) {
+                log(bot, portalDeadline === null ?
+                    'Timed out reaching the Nether portal (30 seconds).' :
+                    'Nether transfer timed out (15 seconds); dimension did not change.');
+                return false;
+            }
+            await new Promise(resolve => setTimeout(resolve, 100));
+        }
+    } finally {
+        bot.removeListener('goal_reached', onGoal);
+        bot.removeListener('path_update', onPath);
+        bot.pathfinder.setGoal(null);
+        bot.clearControlStates();
+        bot.modes.unpause('unstuck');
+    }
+}
+
 export async function goToNearestEntity(bot, entityType, min_distance=2, range=64) {
     /**
      * Navigate to the nearest entity of the given type.
