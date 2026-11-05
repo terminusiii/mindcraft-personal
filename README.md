@@ -79,14 +79,19 @@ bounded failure instead of a false success.
 
 ### Lava safety
 
-When lava is loaded within 32 blocks, navigation and combat chasing avoid parkour and
-sprinting, strongly prefer paths away from lava edges, and refuse to place blocks next to
-lava or dig directly above it. Before fighting, the bot moves to safe footing (solid floor,
+All bots route with one shared hazard-aware pathfinder configuration
+(`src/utils/safe_movements.js`), used by skills, combat (pvp), block collection and the
+pathfinder default. Path nodes in lava (source or flowing) or fire, and floors of lava,
+magma, fire or campfires, are forbidden, including drops and parkour jumps over them; nodes
+beside lava cost extra. Parkour and sprinting are off in the Nether or within 16 blocks of
+lava, and blocks next to liquids are never broken, so collecting obsidian beside lava may be
+refused. If no safe path exists the bot says "No safe path to the goal" and doesn't move.
+Before fighting, the bot moves to safe footing (solid floor,
 no adjacent lava). It doesn't chase enemies standing near lava, and it disengages if no
 safe footing is reachable. If the bot is in lava in the Nether, where water evaporates, it
 climbs onto the nearest safe ground. In the Overworld it tries to get out of the lava before
 using water. These are mitigations: knockback can still push the bot into lava. Run
-`node --experimental-vm-modules --test tests/lava-safety.test.js` for the mocked tests. To
+`node --experimental-vm-modules --test tests/lava-safety.test.js tests/safe-movements.test.js` for the mocked tests. To
 test live on a copy of a world, have the bot fight a magma cube near a Nether lava lake and
 check that it backs away from the edge instead of following the cube.
 

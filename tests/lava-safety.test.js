@@ -5,6 +5,7 @@ import test from 'node:test';
 import vm from 'node:vm';
 
 const skillsSource = readFile(new URL('../src/agent/library/skills.js', import.meta.url), 'utf8');
+const safeSource = readFile(new URL('../src/utils/safe_movements.js', import.meta.url), 'utf8');
 const LAVA = 10;
 
 class Position {
@@ -63,8 +64,11 @@ async function setup({ lava = [], entities = [], inLava = false, start = [0, 64,
     class Movements {
         constructor() {
             Object.assign(this, { allowParkour: true, allowSprinting: true, exclusionAreasStep: [],
-                exclusionAreasPlace: [], exclusionAreasBreak: [], blocksCantBreak: new Set() });
+                exclusionAreasPlace: [], exclusionAreasBreak: [], blocksCantBreak: new Set(), dontCreateFlow: true });
+            this.candidateMoves = [];
         }
+        getBlock(pos, dx, dy, dz) { return bot.blockAt(new Position(pos.x + dx, pos.y + dy, pos.z + dz)); }
+        getNeighbors() { return this.candidateMoves.map(m => ({ ...m })); }
     }
     const goals = {
         GoalBlock: class { constructor(x, y, z) { Object.assign(this, { x, y, z, kind: 'block' }); } },
@@ -86,19 +90,22 @@ async function setup({ lava = [], entities = [], inLava = false, start = [0, 64,
         for (const [k, v] of Object.entries(value)) this.setExport(k, v);
         if (!value.default) this.setExport('default', value);
     }, { context });
+    const pfStub = () => stub({ default: { Movements, goals } });
+    const safe = new vm.SourceTextModule(await safeSource, { context });
+    await safe.link(() => pfStub());
+    await safe.evaluate();
     const skills = new vm.SourceTextModule(await skillsSource, { context });
     await skills.link(spec => {
-        if (spec === 'mineflayer-pathfinder') return stub({ default: { Movements, goals } });
+        if (spec === 'mineflayer-pathfinder') return pfStub();
         if (spec === 'vec3') return stub({ default: Position });
+        if (spec.endsWith('safe_movements.js')) return safe;
         if (spec.endsWith('world.js')) return stub(world);
         if (spec.endsWith('mcdata.js')) return stub(mc);
         return stub({ default: {} });
     });
     await skills.evaluate();
-    return { bot, s: skills.namespace, entities, Position, Movements };
+    return { bot, s: skills.namespace, safe: safe.namespace, entities, Position, Movements };
 }
-
-const at = (x, y, z) => ({ position: new Position(x, y, z) });
 
 test('isNearLava and isSafeFooting detect lava edges, missing floor and lava below', async () => {
     const { bot, s } = await setup({ lava: [[2, 63, 0]] });
@@ -110,32 +117,26 @@ test('isNearLava and isSafeFooting detect lava edges, missing floor and lava bel
     assert.equal(s.isSafeFooting(bot, new Position(-2, 70, 0)), false);
 });
 
-test('lavaSafeMovements is a no-op without nearby lava', async () => {
-    const { s } = await setup({ start: [0, 64, 0] });
-    const m = s.lavaSafeMovements({ entity: { position: new Position(0, 64, 0) }, registry: { blocksByName: { lava: { id: LAVA } } }, findBlocks: () => [] });
-    assert.equal(m.allowParkour, true);
-    assert.equal(m.exclusionAreasStep.length, 0);
-});
-
-test('lavaSafeMovements penalizes lava edges and blocks parkour, sprinting, bridging and digging above lava', async () => {
+test('goToGoal stops with a clear message when no safe path exists', async () => {
     const { bot, s } = await setup({ lava: [[3, 63, 0]] });
-    const m = s.lavaSafeMovements(bot);
-    assert.equal(m.allowParkour, false);
-    assert.equal(m.allowSprinting, false);
-    assert.equal(m.lavaSafe, true);
-    const step = pos => m.exclusionAreasStep.reduce((c, f) => c + f(at(...pos)), 0);
-    assert.equal(step([2, 64, 0]), 25);
-    assert.equal(step([-3, 64, 0]), 0);
-    assert.equal(m.exclusionAreasPlace[0](at(2, 63, 0)), 100);
-    assert.equal(m.exclusionAreasBreak[0](at(3, 64, 0)), 100);
-    assert.equal(m.exclusionAreasBreak[0](at(0, 64, 0)), 0);
+    bot.pathfinder.getPathTo = () => ({ status: 'noPath' });
+    assert.equal(await s.goToGoal(bot, { kind: 'near' }), false);
+    assert.match(bot.output, /No safe path to the goal/);
+    assert.equal(bot.events.some(e => e[0] === 'goto'), false);
 });
 
-test('lavaSafeMovements leaves lava passable when the bot must escape from lava', async () => {
-    const { bot, s } = await setup({ lava: [[0, 63, 0]], inLava: true });
-    const m = s.lavaSafeMovements(bot);
-    assert.equal(m.allowParkour, true);
-    assert.equal(m.exclusionAreasStep.length, 0);
+test('goToGoal routes with shared hazard-aware movements', async () => {
+    const { bot, s } = await setup();
+    assert.equal(await s.goToGoal(bot, { kind: 'near' }), true);
+    assert.equal(bot.pathfinder.movements.hazardSafe, true);
+});
+
+test('safeMovements leaves lava passable when the bot must escape from lava', async () => {
+    const { bot, safe, Movements } = await setup({ lava: [[1, 64, 0]], inLava: true });
+    const m = new Movements();
+    m.candidateMoves = [{ x: 1, y: 64, z: 0, cost: 1 }];
+    safe.safeMovements(bot, m);
+    assert.equal(m.getNeighbors({ x: 0, y: 64, z: 0 }).length, 1);
 });
 
 test('moveToSafeGround escapes onto the nearest safe block away from lava', async () => {
@@ -156,7 +157,7 @@ test('defendSelf repositions to safe footing before attacking and chases with la
     const gotoIndex = bot.events.findIndex(e => e[0] === 'goto' && e[1].kind === 'block');
     const attackIndex = bot.events.findIndex(e => e[0] === 'attack');
     assert.ok(gotoIndex >= 0 && attackIndex > gotoIndex, JSON.stringify(bot.events.map(e => e[0])));
-    assert.equal(bot.events[attackIndex][2].lavaSafe, true);
+    assert.equal(bot.events[attackIndex][2].hazardSafe, true);
     assert.match(bot.output, /repositioning before fighting/);
     assert.equal(s.isSafeFooting(bot, bot.entity.position.floored()), true);
 });

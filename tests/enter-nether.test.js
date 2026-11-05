@@ -5,6 +5,7 @@ import test from 'node:test';
 import vm from 'node:vm';
 
 const skillsSource = readFile(new URL('../src/agent/library/skills.js', import.meta.url), 'utf8');
+const safeSource = readFile(new URL('../src/utils/safe_movements.js', import.meta.url), 'utf8');
 const actionsSource = readFile(new URL('../src/agent/commands/actions.js', import.meta.url), 'utf8');
 
 class Position {
@@ -75,9 +76,13 @@ async function setup({ dimension = 'overworld', onTick = () => {}, onSearchTick 
     const stub = value => new vm.SyntheticModule(['default'], function () {
         this.setExport('default', value);
     }, { context });
+    const safe = new vm.SourceTextModule(await safeSource, { context });
+    await safe.link(() => stub({ Movements, goals: { GoalBlock } }));
+    await safe.evaluate();
     const skills = new vm.SourceTextModule(await skillsSource, { context });
     await skills.link(specifier => {
         if (specifier === 'mineflayer-pathfinder') return stub({ Movements, goals: { GoalBlock } });
+        if (specifier.endsWith('safe_movements.js')) return safe;
         if (specifier === 'vec3') return stub(Position);
         return stub({});
     });

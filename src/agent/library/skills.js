@@ -3,6 +3,7 @@ import * as world from "./world.js";
 import pf from 'mineflayer-pathfinder';
 import Vec3 from 'vec3';
 import settings from "../../../settings.js";
+import { safeMovements } from "../../utils/safe_movements.js";
 
 const blockPlaceDelay = settings.block_place_delay == null ? 0 : settings.block_place_delay;
 const useDelay = blockPlaceDelay > 0;
@@ -10,9 +11,6 @@ const useDelay = blockPlaceDelay > 0;
 export function log(bot, message) {
     bot.output += message + '\n';
 }
-
-const LAVA_SCAN_RANGE = 32;
-const posKey = (x, y, z) => `${Math.floor(x)},${Math.floor(y)},${Math.floor(z)}`;
 
 export function isNearLava(bot, pos, radius=1) {
     /**
@@ -47,38 +45,6 @@ export function isSafeFooting(bot, pos) {
     return !isNearLava(bot, pos, 1);
 }
 
-export function lavaSafeMovements(bot, movements=new pf.Movements(bot)) {
-    /**
-     * Make pathfinder movements conservative near lava: no parkour or sprinting, high cost for
-     * walking next to lava, and no placing next to lava or breaking blocks directly above lava.
-     * Leaves movements unchanged if no lava is loaded nearby, or if the bot is already in lava (so it can escape).
-     * @param {MinecraftBot} bot, reference to the minecraft bot.
-     * @param {Movements} movements, movements to adjust. Defaults to new movements.
-     * @returns {Movements} the adjusted movements.
-     **/
-    if (!bot.entity || bot.entity.isInLava) return movements;
-    const lavaId = bot.registry?.blocksByName?.lava?.id;
-    if (lavaId === undefined) return movements;
-    const lava = bot.findBlocks({ matching: lavaId, maxDistance: LAVA_SCAN_RANGE, count: 4096 });
-    if (lava.length === 0) return movements;
-    const besideLava = new Set();
-    const aboveLava = new Set();
-    for (const l of lava) {
-        aboveLava.add(posKey(l.x, l.y + 1, l.z));
-        for (let dx = -1; dx <= 1; dx++)
-            for (let dz = -1; dz <= 1; dz++)
-                for (let dy = 0; dy <= 1; dy++)
-                    besideLava.add(posKey(l.x + dx, l.y + dy, l.z + dz));
-    }
-    const at = (set, block) => block?.position && set.has(posKey(block.position.x, block.position.y, block.position.z));
-    movements.allowParkour = false;
-    movements.allowSprinting = false;
-    movements.exclusionAreasStep.push(block => at(besideLava, block) ? 25 : 0);
-    movements.exclusionAreasPlace.push(block => at(besideLava, block) ? 100 : 0);
-    movements.exclusionAreasBreak.push(block => at(aboveLava, block) ? 100 : 0);
-    movements.lavaSafe = true;
-    return movements;
-}
 
 export async function moveToSafeGround(bot, awayFrom=null, range=8) {
     /**
@@ -487,7 +453,7 @@ export async function attackEntity(bot, entity, kill=true) {
     }
     else {
         if (!await secureCombatPosition(bot, entity)) return false;
-        bot.pvp.movements = lavaSafeMovements(bot);
+        bot.pvp.movements = safeMovements(bot);
         bot.pvp.attack(entity);
         while (world.getNearbyEntities(bot, 24).includes(entity)) {
             await new Promise(resolve => setTimeout(resolve, 1000));
@@ -522,18 +488,18 @@ export async function defendSelf(bot, range=9) {
         if (!await secureCombatPosition(bot, enemy)) return false;
         if (bot.entity.position.distanceTo(enemy.position) >= 4 && enemy.name !== 'creeper' && enemy.name !== 'phantom') {
             try {
-                bot.pathfinder.setMovements(lavaSafeMovements(bot));
+                bot.pathfinder.setMovements(safeMovements(bot));
                 await bot.pathfinder.goto(new pf.goals.GoalFollow(enemy, 3.5), true);
             } catch (err) {/* might error if entity dies, ignore */}
         }
         if (bot.entity.position.distanceTo(enemy.position) <= 2) {
             try {
-                bot.pathfinder.setMovements(lavaSafeMovements(bot));
+                bot.pathfinder.setMovements(safeMovements(bot));
                 let inverted_goal = new pf.goals.GoalInvert(new pf.goals.GoalFollow(enemy, 2));
                 await bot.pathfinder.goto(inverted_goal, true);
             } catch (err) {/* might error if entity dies, ignore */}
         }
-        bot.pvp.movements = lavaSafeMovements(bot);
+        bot.pvp.movements = safeMovements(bot);
         bot.pvp.attack(enemy);
         attacked = true;
         await new Promise(resolve => setTimeout(resolve, 500));
@@ -581,7 +547,7 @@ export async function collectBlock(bot, blockType, num=1, exclude=null) {
 
     let collected = 0;
 
-    const movements = lavaSafeMovements(bot);
+    const movements = safeMovements(bot);
     movements.dontMineUnderFallingBlock = false;
     movements.dontCreateFlow = true;
 
@@ -680,7 +646,7 @@ export async function pickupNearbyItems(bot) {
     let nearestItem = getNearestItem(bot);
     let pickedUp = 0;
     while (nearestItem) {
-        let movements = lavaSafeMovements(bot);
+        let movements = safeMovements(bot);
         movements.canDig = false;
         bot.pathfinder.setMovements(movements);
         await goToGoal(bot, new pf.goals.GoalFollow(nearestItem, 1));
@@ -722,7 +688,7 @@ export async function breakBlockAt(bot, x, y, z) {
 
         if (bot.entity.position.distanceTo(block.position) > 4.5) {
             let pos = block.position;
-            let movements = lavaSafeMovements(bot);
+            let movements = safeMovements(bot);
             movements.canPlaceOn = false;
             movements.allow1by1towers = false;
             bot.pathfinder.setMovements(movements);
@@ -897,13 +863,13 @@ export async function placeBlock(bot, blockType, x, y, z, placeOn='bottom', dont
         // too close
         let goal = new pf.goals.GoalNear(targetBlock.position.x, targetBlock.position.y, targetBlock.position.z, 2);
         let inverted_goal = new pf.goals.GoalInvert(goal);
-        bot.pathfinder.setMovements(lavaSafeMovements(bot));
+        bot.pathfinder.setMovements(safeMovements(bot));
         await bot.pathfinder.goto(inverted_goal);
     }
     if (bot.entity.position.distanceTo(targetBlock.position) > 4.5) {
         // too far
         let pos = targetBlock.position;
-        let movements = lavaSafeMovements(bot);
+        let movements = safeMovements(bot);
         bot.pathfinder.setMovements(movements);
         await goToGoal(bot, new pf.goals.GoalNear(pos.x, pos.y, pos.z, 4));
     }
@@ -1213,7 +1179,7 @@ export async function goToGoal(bot, goal) {
      * @param {pf.goals.Goal} goal, the goal to navigate to.
      **/
 
-    const nonDestructiveMovements = lavaSafeMovements(bot);
+    const nonDestructiveMovements = safeMovements(bot);
     const dontBreakBlocks = ['glass', 'glass_pane'];
     for (let block of dontBreakBlocks) {
         nonDestructiveMovements.blocksCantBreak.add(mc.getBlockId(block));
@@ -1221,20 +1187,28 @@ export async function goToGoal(bot, goal) {
     nonDestructiveMovements.placeCost = 2;
     nonDestructiveMovements.digCost = 10;
 
-    const destructiveMovements = lavaSafeMovements(bot);
+    const destructiveMovements = safeMovements(bot);
 
     let final_movements = destructiveMovements;
 
     const pathfind_timeout = 1000;
-    if (await bot.pathfinder.getPathTo(nonDestructiveMovements, goal, pathfind_timeout).status === 'success') {
+    const nonDestructivePath = await bot.pathfinder.getPathTo(nonDestructiveMovements, goal, pathfind_timeout);
+    if (nonDestructivePath.status === 'success') {
         final_movements = nonDestructiveMovements;
         log(bot, `Found non-destructive path.`);
     }
-    else if (await bot.pathfinder.getPathTo(destructiveMovements, goal, pathfind_timeout).status === 'success') {
-        log(bot, `Found destructive path.`);
-    }
     else {
-        log(bot, `Path not found, but attempting to navigate anyway using destructive movements.`);
+        const destructivePath = await bot.pathfinder.getPathTo(destructiveMovements, goal, pathfind_timeout);
+        if (destructivePath.status === 'success') {
+            log(bot, `Found destructive path.`);
+        }
+        else if (destructivePath.status === 'noPath') {
+            log(bot, `No safe path to the goal (lava, magma and fire are avoided); not moving.`);
+            return false;
+        }
+        else {
+            log(bot, `Path not found, but attempting to navigate anyway using destructive movements.`);
+        }
     }
 
     const doorCheckInterval = startDoorInterval(bot);
@@ -1469,7 +1443,7 @@ async function travelThroughPortal(bot, targetName, sourceDimensions, targetDime
     }
     entries.sort((a, b) => a.distanceTo(bot.entity.position) - b.distanceTo(bot.entity.position));
 
-    const movements = lavaSafeMovements(bot);
+    const movements = safeMovements(bot);
     movements.canDig = false;
     movements.allow1by1towers = false;
     movements.allowParkour = false;
@@ -1603,7 +1577,7 @@ export async function goToPlayer(bot, username, distance=3) {
     distance = Math.max(distance, 0.5);
     const goal = new pf.goals.GoalFollow(player, distance);
 
-    await goToGoal(bot, goal, true);
+    if (!await goToGoal(bot, goal, true)) return false;
 
     log(bot, `You have reached ${username}.`);
 }
@@ -1622,7 +1596,7 @@ export async function followPlayer(bot, username, distance=4) {
     if (!player)
         return false;
 
-    const move = lavaSafeMovements(bot);
+    const move = safeMovements(bot);
     move.digCost = 10;
     bot.pathfinder.setMovements(move);
     let doorCheckInterval = startDoorInterval(bot);
@@ -1687,10 +1661,10 @@ export async function moveAway(bot, distance) {
     const pos = bot.entity.position;
     let goal = new pf.goals.GoalNear(pos.x, pos.y, pos.z, distance);
     let inverted_goal = new pf.goals.GoalInvert(goal);
-    bot.pathfinder.setMovements(lavaSafeMovements(bot));
+    bot.pathfinder.setMovements(safeMovements(bot));
 
     if (bot.modes.isOn('cheat')) {
-        const move = lavaSafeMovements(bot);
+        const move = safeMovements(bot);
         const path = await bot.pathfinder.getPathTo(move, inverted_goal, 10000);
         let last_move = path.path[path.path.length-1];
         if (last_move) {
@@ -1702,7 +1676,7 @@ export async function moveAway(bot, distance) {
         }
     }
 
-    await goToGoal(bot, inverted_goal);
+    if (!await goToGoal(bot, inverted_goal)) return false;
     let new_pos = bot.entity.position;
     log(bot, `Moved away from ${pos.floored()} to ${new_pos.floored()}.`);
     return true;
@@ -1718,7 +1692,7 @@ export async function moveAwayFromEntity(bot, entity, distance=16) {
      **/
     let goal = new pf.goals.GoalFollow(entity, distance);
     let inverted_goal = new pf.goals.GoalInvert(goal);
-    bot.pathfinder.setMovements(lavaSafeMovements(bot));
+    bot.pathfinder.setMovements(safeMovements(bot));
     await bot.pathfinder.goto(inverted_goal);
     return true;
 }
@@ -1737,7 +1711,7 @@ export async function avoidEnemies(bot, distance=16) {
     while (enemy) {
         const follow = new pf.goals.GoalFollow(enemy, distance+1); // move a little further away
         const inverted_goal = new pf.goals.GoalInvert(follow);
-        bot.pathfinder.setMovements(lavaSafeMovements(bot));
+        bot.pathfinder.setMovements(safeMovements(bot));
         bot.pathfinder.setGoal(inverted_goal, true);
         await new Promise(resolve => setTimeout(resolve, 500));
         enemy = world.getNearestEntityWhere(bot, entity => mc.isHostile(entity), distance);
@@ -1901,7 +1875,7 @@ export async function tillAndSow(bot, x, y, z, seedType=null) {
     // if distance is too far, move to the block
     if (bot.entity.position.distanceTo(block.position) > 4.5) {
         let pos = block.position;
-        bot.pathfinder.setMovements(lavaSafeMovements(bot));
+        bot.pathfinder.setMovements(safeMovements(bot));
         await goToGoal(bot, new pf.goals.GoalNear(pos.x, pos.y, pos.z, 4));
     }
     if (block.name !== 'farmland') {
@@ -1946,7 +1920,7 @@ export async function activateNearestBlock(bot, type) {
     }
     if (bot.entity.position.distanceTo(block.position) > 4.5) {
         let pos = block.position;
-        bot.pathfinder.setMovements(lavaSafeMovements(bot));
+        bot.pathfinder.setMovements(safeMovements(bot));
         await goToGoal(bot, new pf.goals.GoalNear(pos.x, pos.y, pos.z, 4));
     }
     await bot.activateBlock(block);
@@ -2002,7 +1976,7 @@ async function findAndGoToVillager(bot, id) {
         try {
             bot.modes.pause('unstuck');
             const goal = new pf.goals.GoalFollow(entity, 2);
-            await goToGoal(bot, goal);
+            if (!await goToGoal(bot, goal)) return null;
             
             
             log(bot, 'Successfully reached villager');

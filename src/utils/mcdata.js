@@ -7,6 +7,7 @@ import { plugin as pvp } from 'mineflayer-pvp';
 import { plugin as collectblock } from 'mineflayer-collectblock';
 import { plugin as autoEat } from 'mineflayer-auto-eat';
 import plugin from 'mineflayer-armor-manager';
+import { applyDefaultSafeMovements } from './safe_movements.js';
 const armorManager = plugin;
 let mc_version = settings.minecraft_version;
 let mcdata = null;
@@ -119,6 +120,8 @@ export function initBot(username) {
     bot.loadPlugin(collectblock);
     bot.loadPlugin(autoEat);
     bot.loadPlugin(armorManager); // auto equip armor
+    // hazard-aware plugin defaults; refreshed on every spawn, including dimension changes
+    bot.on('spawn', () => applyDefaultSafeMovements(bot));
     bot.once('resourcePack', () => {
         bot.acceptResourcePack();
     });
