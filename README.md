@@ -52,6 +52,35 @@ Docker Compose profiles mount. With multiple bots running, they only respond to
 whispers, not public chat. Address each bot with `/msg andy <message>` or
 `/msg jane <message>`, for example `/msg jane !enterNether`.
 
+### Basic tool upkeep
+
+Andy and Jane enable the `basic_upkeep` mode in their profiles. A passive upkeep
+prompt would not trigger without chat, so this small idle mode performs the work
+directly: after 10 seconds idle, craft any missing stone-or-better sword or pickaxe.
+Iron, diamond and netherite tools satisfy the requirement; wooden and golden tools
+do not. It makes sticks and a crafting table if needed, and a wooden pickaxe only
+when needed to mine stone. A placed table is left nearby for reuse.
+
+Gathering and routing stay within 8 blocks of the starting point, using lava-safe,
+no-dig/no-build routes and refusing lava edges. Only reachable wood and stone
+materials are gathered, including Nether stems and blackstone when their recipes
+are available. It never changes dimensions or searches farther for supplies.
+Attempts last at most one minute. Human messages immediately interrupt upkeep,
+and it waits while a task, conversation, resumed action or self-prompting is active.
+
+If supplies or a safe route are unavailable, it reports once and stops. Retries
+require changed inventory or a new 8-block location region, and are separated by
+at least five minutes. To retry manually, turn the mode off and back on.
+Disable it in game with `/msg andy !setMode("basic_upkeep", false)` and
+`/msg jane !setMode("basic_upkeep", false)`, or set `"basic_upkeep": false` in each
+profile's `"modes"` object before restarting. Other profiles leave it off by default.
+
+Run `node --experimental-vm-modules --test tests/tool-upkeep.test.js` for mocked
+checks. For a live WSL2 test, rebuild/recreate Mindcraft, leave a bot idle near a
+safe crafting table, logs and a stone wall, and confirm it acquires both tools.
+Then check that a better tool is kept, missing nearby supplies produce only one
+failure message, and a whispered order or `!stop` interrupts gathering.
+
 ### Entering a Nether portal
 
 When you intentionally want the bot to travel to the Nether, send `!enterNether`

@@ -3,6 +3,7 @@ import * as world from './library/world.js';
 import * as mc from '../utils/mcdata.js';
 import settings from './settings.js'
 import convoManager from './conversation.js';
+import { maintainTools, upkeepKey, upkeepReady } from './library/tool_upkeep.js';
 
 async function say(agent, message) {
     agent.bot.modes.behavior_log += message + '\n';
@@ -271,6 +272,36 @@ const modes_list = [
         }
     },
     {
+        name: 'basic_upkeep',
+        description: 'When idle, craft missing stone-or-better sword and pickaxe using safe nearby materials.',
+        interrupts: [],
+        on: false,
+        active: false,
+        upkeep: {},
+        update: function (agent) {
+            if (convoManager.inConversation()) {
+                this.upkeep.idleSince = Date.now();
+                return;
+            }
+            if (!upkeepReady(agent, this.upkeep)) return;
+            this.upkeep.nextAttempt = Date.now() + 5 * 60 * 1000;
+            execute(this, agent, async () => {
+                try {
+                    await maintainTools(agent.bot);
+                    say(agent, 'Basic tools ready.');
+                } catch (err) {
+                    if (!agent.bot.interrupt_code) {
+                        console.warn('Basic upkeep stopped:', err);
+                        say(agent, `Upkeep stopped: ${err.message}. Waiting for help or a new location.`);
+                    }
+                } finally {
+                    this.upkeep.lastKey = upkeepKey(agent.bot);
+                    this.upkeep.idleSince = Date.now();
+                }
+            }, 1);
+        }
+    },
+    {
         name: 'idle_staring',
         description: 'Animation to look around at entities when idle.',
         interrupts: [],
@@ -365,6 +396,9 @@ class ModeController {
     }
 
     setOn(mode_name, on) {
+        if (mode_name === 'basic_upkeep' && on && !modes_map[mode_name].on) {
+            modes_map[mode_name].upkeep = { idleSince: Date.now() };
+        }
         modes_map[mode_name].on = on;
     }
 
@@ -411,6 +445,9 @@ class ModeController {
     }
 
     async update() {
+        if (!_agent.isIdle() || _agent.pendingMessages) {
+            modes_map.basic_upkeep.upkeep.idleSince = Date.now();
+        }
         if (_agent.isIdle()) {
             this.unPauseAll();
         }

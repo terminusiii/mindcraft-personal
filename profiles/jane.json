@@ -1,4 +1,5 @@
 {
     "name": "jane",
-    "model": "gpt-5.4-mini"
+    "model": "gpt-5.4-mini",
+    "modes": { "basic_upkeep": true }
 }
