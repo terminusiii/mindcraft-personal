@@ -61,11 +61,18 @@ to become the Nether, not merely reaching a portal block. Missing or unreachable
 portals and timeouts are reported; if already in the Nether, it does not travel
 back. Send `!stop` to interrupt. Safety modes can still interrupt dangerous travel.
 
+To return, send `!enterOverworld` while the bot is in the Nether. It uses the same
+portal search, entry selection, no-dig/no-build movement, time limits and `!stop`
+handling, and reports success only after the dimension becomes the Overworld. It
+refuses to run outside the Nether. Both commands are human-requested only.
+
 For a local WSL2 smoke test, start your usual local Minecraft server and Mindcraft
 (`nvm use 20.20.2`, then `node main.js`). Use a copy of your test world and an active
 portal with a clear approach. From the Overworld, send `!enterNether` and confirm
 the bot stands inside the purple portal and reports success only after transfer.
-Repeat in the Nether to check the no-travel response. In the Overworld, also try
+Repeat in the Nether to check the no-travel response. Then, next to the Nether-side
+portal, send `!enterOverworld` and confirm success only after arriving back; sending
+it again in the Overworld should refuse to travel. In the Overworld, also try
 without a nearby portal, with all entries obstructed, and `!stop` during approach
 or the transfer wait. On a local server with Nether travel disabled, verify the
 bounded failure instead of a false success.

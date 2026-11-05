@@ -1271,6 +1271,9 @@ export async function goToNearestBlock(bot, blockType,  min_distance=2, range=64
     return true;
 }
 
+const NETHER_DIMENSIONS = ['the_nether', 'minecraft:the_nether', 'nether'];
+const OVERWORLD_DIMENSIONS = ['overworld', 'minecraft:overworld'];
+
 export async function enterNether(bot) {
     /**
      * Enter a nearby active Nether portal only when explicitly requested by the human.
@@ -1280,17 +1283,33 @@ export async function enterNether(bot) {
      * @example
      * await skills.enterNether(bot);
      **/
-    const inNether = () => ['the_nether', 'minecraft:the_nether', 'nether'].includes(bot.game.dimension);
+    return await travelThroughPortal(bot, 'Nether', OVERWORLD_DIMENSIONS, NETHER_DIMENSIONS);
+}
+
+export async function enterOverworld(bot) {
+    /**
+     * From the Nether, enter a nearby active portal back to the Overworld only when explicitly requested by the human.
+     * Searches loaded blocks within 64 blocks without digging or building.
+     * @param {MinecraftBot} bot, reference to the minecraft bot.
+     * @returns {Promise<boolean>} true only after arriving in the Overworld.
+     * @example
+     * await skills.enterOverworld(bot);
+     **/
+    return await travelThroughPortal(bot, 'Overworld', NETHER_DIMENSIONS, OVERWORLD_DIMENSIONS);
+}
+
+async function travelThroughPortal(bot, targetName, sourceDimensions, targetDimensions) {
+    const inTarget = () => targetDimensions.includes(bot.game.dimension);
     if (bot.interrupt_code) {
-        log(bot, 'Nether entry interrupted.');
+        log(bot, `${targetName} entry interrupted.`);
         return false;
     }
-    if (inNether()) {
-        log(bot, 'Already in the Nether; no portal travel attempted.');
+    if (inTarget()) {
+        log(bot, `Already in the ${targetName}; no portal travel attempted.`);
         return false;
     }
-    if (!['overworld', 'minecraft:overworld'].includes(bot.game.dimension)) {
-        log(bot, `Cannot enter the Nether from dimension ${bot.game.dimension}.`);
+    if (!sourceDimensions.includes(bot.game.dimension)) {
+        log(bot, `Cannot enter the ${targetName} from dimension ${bot.game.dimension}.`);
         return false;
     }
 
@@ -1332,7 +1351,7 @@ export async function enterNether(bot) {
         await wait(bot, 1);
     }
     if (bot.interrupt_code) {
-        log(bot, 'Nether entry interrupted.');
+        log(bot, `${targetName} entry interrupted.`);
         return false;
     }
     if (!goal) {
@@ -1354,15 +1373,15 @@ export async function enterNether(bot) {
         let portalDeadline = null;
         while (true) {
             if (bot.interrupt_code) {
-                log(bot, 'Nether entry interrupted.');
+                log(bot, `${targetName} entry interrupted.`);
                 return false;
             }
-            if (inNether()) {
-                log(bot, 'Successfully entered the Nether.');
+            if (inTarget()) {
+                log(bot, `Successfully entered the ${targetName}.`);
                 return true;
             }
-            if (!['overworld', 'minecraft:overworld'].includes(bot.game.dimension)) {
-                log(bot, `Nether entry failed: changed to unexpected dimension ${bot.game.dimension}.`);
+            if (!sourceDimensions.includes(bot.game.dimension)) {
+                log(bot, `${targetName} entry failed: changed to unexpected dimension ${bot.game.dimension}.`);
                 return false;
             }
             if (noPath) {
@@ -1375,12 +1394,12 @@ export async function enterNether(bot) {
                     return false;
                 }
                 portalDeadline = Date.now() + 15000;
-                log(bot, 'Inside the portal; waiting up to 15 seconds for Nether transfer.');
+                log(bot, `Inside the portal; waiting up to 15 seconds for ${targetName} transfer.`);
             }
             if (Date.now() >= (portalDeadline ?? navigationDeadline)) {
                 log(bot, portalDeadline === null ?
                     'Timed out reaching the Nether portal (30 seconds).' :
-                    'Nether transfer timed out (15 seconds); dimension did not change.');
+                    `${targetName} transfer timed out (15 seconds); dimension did not change.`);
                 return false;
             }
             await new Promise(resolve => setTimeout(resolve, 100));

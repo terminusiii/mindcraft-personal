@@ -83,6 +83,7 @@ async function setup({ dimension = 'overworld', onTick = () => {}, onSearchTick 
     });
     await skills.evaluate();
     const enter = () => skills.namespace.enterNether(bot);
+    const enterOverworld = () => skills.namespace.enterOverworld(bot);
     const assertClean = () => {
         assert.equal(bot.pathfinder.goal, null);
         assert.equal(bot.listenerCount('goal_reached'), 0);
@@ -90,7 +91,7 @@ async function setup({ dimension = 'overworld', onTick = () => {}, onSearchTick 
         assert.equal(paused.size, 0);
         assert.equal(bot.controlsCleared, true);
     };
-    return { bot, add, addPortal, enter, assertClean, context, skills, stub };
+    return { bot, add, addPortal, enter, enterOverworld, assertClean, context, skills, stub };
 }
 
 function arrive(bot) {
@@ -297,4 +298,69 @@ test('command uses the standard action wrapper without resuming or altering bloc
     const search = actions.namespace.actionsList.find(action => action.name === '!searchForBlock');
     assert.match(search.perform.toString(), /runAction/);
     assert.match(await actionsSource, /goToNearestBlock\(agent.bot, block_type, 4, range\)/);
+});
+
+test('enterOverworld from the Nether enters a portal and waits for Overworld dimension', async () => {
+    const fixture = await setup({
+        dimension: 'minecraft:the_nether',
+        onTick(bot, now) {
+            if (now === 100) arrive(bot);
+            if (now === 4100) bot.game.dimension = 'minecraft:overworld';
+        }
+    });
+    fixture.addPortal();
+    assert.equal(await fixture.enterOverworld(), true);
+    assert.equal(fixture.bot.entryGoal.y, 64);
+    assert.equal(fixture.bot.pathfinder.movements.canDig, false);
+    assert.match(fixture.bot.output, /waiting up to 15 seconds for Overworld transfer/);
+    assert.match(fixture.bot.output, /Successfully entered the Overworld/);
+    fixture.assertClean();
+});
+
+test('enterOverworld refuses outside the Nether without searching', async () => {
+    for (const [dimension, message] of [['overworld', /Already in the Overworld/], ['the_end', /Cannot enter the Overworld/]]) {
+        const fixture = await setup({ dimension });
+        fixture.addPortal();
+        assert.equal(await fixture.enterOverworld(), false);
+        assert.match(fixture.bot.output, message);
+        assert.equal(fixture.bot.search, undefined);
+    }
+});
+
+test('enterOverworld reports missing portal, bounded transfer, and interrupt', async () => {
+    const missing = await setup({ dimension: 'the_nether' });
+    assert.equal(await missing.enterOverworld(), false);
+    assert.match(missing.bot.output, /No active Nether portal/);
+
+    const timeout = await setup({ dimension: 'the_nether', onTick(bot, now) { if (now === 100) arrive(bot); } });
+    timeout.addPortal();
+    assert.equal(await timeout.enterOverworld(), false);
+    assert.match(timeout.bot.output, /Overworld transfer timed out \(15 seconds\)/);
+    timeout.assertClean();
+
+    const stopped = await setup({ dimension: 'the_nether', onTick(bot, now) { if (now === 200) bot.interrupt_code = true; } });
+    stopped.addPortal();
+    assert.equal(await stopped.enterOverworld(), false);
+    assert.match(stopped.bot.output, /Overworld entry interrupted/);
+    stopped.assertClean();
+});
+
+test('enterOverworld command uses the standard action wrapper', async () => {
+    const fixture = await setup({ dimension: 'the_nether' });
+    const actions = new vm.SourceTextModule(await actionsSource, { context: fixture.context });
+    await actions.link(specifier => specifier.endsWith('/skills.js') ? fixture.skills : fixture.stub({}));
+    await actions.evaluate();
+    const command = actions.namespace.actionsList.find(action => action.name === '!enterOverworld');
+    const agent = {
+        bot: fixture.bot,
+        actions: {
+            async runAction(label, action, options) {
+                assert.equal(label, 'action:enterOverworld');
+                assert.equal(options.resume, false);
+                await action();
+                return { message: fixture.bot.output };
+            }
+        }
+    };
+    assert.match(await command.perform(agent), /No active Nether portal/);
 });

@@ -146,6 +146,13 @@ export const actionsList = [
         })
     },
     {
+        name: '!enterOverworld',
+        description: 'From the Nether, enter a nearby active portal back to the Overworld. Risky dimension travel: use only when explicitly requested by the human, never autonomously. Searches 64 loaded blocks and waits for confirmed transfer. Use !stop to interrupt.',
+        perform: runAsAction(async (agent) => {
+            await skills.enterOverworld(agent.bot);
+        })
+    },
+    {
         name: '!searchForEntity',
         description: 'Find and go to the nearest entity of a given type in a given range.',
         params: {
