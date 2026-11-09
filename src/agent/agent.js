@@ -252,6 +252,19 @@ export class Agent {
     }
 
     async handleMessage(source, message, max_responses=null) {
+        this.pendingMessages = (this.pendingMessages || 0) + 1;
+        try {
+            if (source && source !== 'system' && source !== this.name &&
+                !convoManager.isOtherAgent(source) && this.actions.currentActionLabel === 'mode:basic_upkeep') {
+                await this.actions.stop();
+            }
+            return await this._handleMessage(source, message, max_responses);
+        } finally {
+            this.pendingMessages--;
+        }
+    }
+
+    async _handleMessage(source, message, max_responses=null) {
         await this.checkTaskDone();
         if (!source || !message) {
             console.warn('Received empty message from', source);

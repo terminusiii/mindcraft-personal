@@ -1,5 +1,6 @@
 import pf from 'mineflayer-pathfinder';
 import * as mc from '../../utils/mcdata.js';
+import { safeMovements } from '../../utils/safe_movements.js';
 
 
 export function getNearestFreeSpace(bot, size=1, distance=8) {
@@ -394,7 +395,7 @@ export async function isClearPath(bot, target) {
      * @param {Entity} target - The target to path to.
      * @returns {boolean} - True if there is a clear path, false otherwise.
      */
-    let movements = new pf.Movements(bot)
+    let movements = safeMovements(bot)
     movements.canDig = false;
     movements.canPlaceOn = false;
     movements.canOpenDoors = false;

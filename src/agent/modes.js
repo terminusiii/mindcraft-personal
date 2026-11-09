@@ -3,6 +3,7 @@ import * as world from './library/world.js';
 import * as mc from '../utils/mcdata.js';
 import settings from './settings.js'
 import convoManager from './conversation.js';
+import { maintainTools, upkeepKey, upkeepReady } from './library/tool_upkeep.js';
 
 async function say(agent, message) {
     agent.bot.modes.behavior_log += message + '\n';
@@ -46,9 +47,19 @@ const modes_list = [
                     await skills.moveAway(bot, 2);
                 });
             }
-            else if (block.name === 'lava' || block.name === 'fire' ||
+            else if (bot.entity.isInLava || block.name === 'lava' || block.name === 'fire' ||
                 blockAbove.name === 'lava' || blockAbove.name === 'fire') {
                 say(agent, 'I\'m on fire!');
+                // water evaporates in the Nether, so climb out of lava onto safe ground there
+                const inNether = String(bot.game?.dimension).includes('nether');
+                const inLava = bot.entity.isInLava || block.name === 'lava' || blockAbove.name === 'lava';
+                if (inLava && inNether) {
+                    execute(this, agent, async () => {
+                        if (await skills.moveToSafeGround(bot, null, 10)) say(agent, 'Got out of the lava!');
+                        else await skills.moveAway(bot, 5);
+                    });
+                    return;
+                }
                 // if you have a water bucket, use it
                 let waterBucket = bot.inventory.findInventoryItem('water_bucket');
                 if (waterBucket) {
@@ -63,6 +74,10 @@ const modes_list = [
                         if (waterBucket) {
                             let success = await skills.placeBlock(bot, 'water_bucket', block.position.x, block.position.y, block.position.z);
                             if (success) say(agent, 'Placed some water, ahhhh that\'s better!');
+                            return;
+                        }
+                        if (inLava && await skills.moveToSafeGround(bot, null, 10)) {
+                            say(agent, 'Got out of the lava!');
                             return;
                         }
                         let nearestWater = world.getNearestBlock(bot, 'water', 20);
@@ -160,7 +175,7 @@ const modes_list = [
         on: true,
         active: false,
         update: async function (agent) {
-            const enemy = world.getNearestEntityWhere(agent.bot, entity => mc.isHostile(entity), 8);
+            const enemy = world.getNearestEntityWhere(agent.bot, entity => mc.isHostile(entity) && !skills.isUnsafeCombatTarget(agent.bot, entity), 8);
             if (enemy && await world.isClearPath(agent.bot, enemy)) {
                 say(agent, `Fighting ${enemy.name}!`);
                 execute(this, agent, async () => {
@@ -254,6 +269,57 @@ const modes_list = [
                     }
                 });
             }
+        }
+    },
+    {
+        name: 'idle_follow',
+        description: 'Follow the nearest non-bot player when idle.',
+        interrupts: [],
+        on: false,
+        active: false,
+        update: async function (agent) {
+            const target = world.getNearestEntityWhere(
+                agent.bot,
+                entity => entity.type === 'player' &&
+                    entity.username !== agent.name &&
+                    !convoManager.isOtherAgent(entity.username),
+                64
+            );
+            if (!target) return;
+            execute(this, agent, async () => {
+                await skills.followPlayer(agent.bot, target.username, 3);
+            });
+        }
+    },
+    {
+        name: 'basic_upkeep',
+        description: 'When idle, craft missing stone-or-better sword and pickaxe using safe nearby materials.',
+        interrupts: [],
+        on: false,
+        active: false,
+        upkeep: {},
+        update: function (agent) {
+            if (convoManager.inConversation()) {
+                this.upkeep.idleSince = Date.now();
+                return;
+            }
+            if (!upkeepReady(agent, this.upkeep)) return;
+            execute(this, agent, async () => {
+                try {
+                    await maintainTools(agent.bot);
+                    say(agent, 'Basic tools ready.');
+                    this.upkeep.lastKey = upkeepKey(agent.bot);
+                    this.upkeep.nextAttempt = Date.now() + 5 * 60 * 1000;
+                } catch (err) {
+                    this.upkeep.nextAttempt = Date.now() + 30 * 1000;
+                    if (!agent.bot.interrupt_code) {
+                        console.warn('Basic upkeep stopped:', err);
+                        say(agent, `Upkeep stopped: ${err.message}. I will retry soon.`);
+                    }
+                } finally {
+                    this.upkeep.idleSince = Date.now();
+                }
+            }, 1);
         }
     },
     {
@@ -351,6 +417,9 @@ class ModeController {
     }
 
     setOn(mode_name, on) {
+        if (mode_name === 'basic_upkeep' && on && !modes_map[mode_name].on) {
+            modes_map[mode_name].upkeep = { idleSince: Date.now() };
+        }
         modes_map[mode_name].on = on;
     }
 
@@ -397,6 +466,9 @@ class ModeController {
     }
 
     async update() {
+        if (!_agent.isIdle() || _agent.pendingMessages) {
+            modes_map.basic_upkeep.upkeep.idleSince = Date.now();
+        }
         if (_agent.isIdle()) {
             this.unPauseAll();
         }

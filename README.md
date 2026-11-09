@@ -46,6 +46,95 @@ Do not connect this bot to public servers with coding enabled. This project allo
 
 6. Run `node main.js` from the installed directory
 
+The default setup starts two bots, `andy` and `jane`, both using `gpt-5.4-mini`.
+Andy uses `andy.json`; Jane uses `profiles/jane.json`, which is included in the
+Docker Compose profiles mount. With multiple bots running, they only respond to
+whispers, not public chat. Address each bot with `/msg andy <message>` or
+`/msg jane <message>`, for example `/msg jane !enterNether`.
+
+### Basic tool upkeep
+
+Andy and Jane enable the `basic_upkeep` mode in their profiles. A passive upkeep
+prompt would not trigger without chat, so this small idle mode performs the work
+directly: after 10 seconds idle, craft any missing stone-or-better sword or pickaxe.
+Iron, diamond and netherite tools satisfy the requirement; wooden and golden tools
+do not. It makes sticks and a crafting table if needed, and a wooden pickaxe only
+when needed to mine stone. A placed table is left nearby for reuse.
+
+Gathering and routing stay within 8 blocks of the starting point, using lava-safe,
+no-dig/no-build routes and refusing lava edges. Only reachable wood and stone
+materials are gathered, including Nether stems and blackstone when their recipes
+are available. It never changes dimensions or searches farther for supplies.
+Attempts last at most one minute. Human messages immediately interrupt upkeep,
+and it waits while a task, conversation, resumed action or self-prompting is active.
+
+If supplies or a safe route are unavailable, it reports once and stops. Retries
+require changed inventory or a new 8-block location region, and are separated by
+at least five minutes. To retry manually, turn the mode off and back on.
+Disable it in game with `/msg andy !setMode("basic_upkeep", false)` and
+`/msg jane !setMode("basic_upkeep", false)`, or set `"basic_upkeep": false` in each
+profile's `"modes"` object before restarting. Other profiles leave it off by default.
+
+Run `node --experimental-vm-modules --test tests/tool-upkeep.test.js` for mocked
+checks. For a live WSL2 test, rebuild/recreate Mindcraft, leave a bot idle near a
+safe crafting table, logs and a stone wall, and confirm it acquires both tools.
+Then check that a better tool is kept, missing nearby supplies produce only one
+failure message, and a whispered order or `!stop` interrupts gathering.
+
+### Entering a Nether portal
+
+When you intentionally want the bot to travel to the Nether, send `!enterNether`
+in chat (or explicitly ask the bot to enter the Nether). This risky action is
+human-requested, not an autonomous travel goal. `!searchForBlock("nether_portal", 64)`
+only approaches a portal; it deliberately stops several blocks away.
+
+`!enterNether` searches active portal blocks within 64 loaded blocks, selects a
+reachable bottom entry with solid support and portal headroom, and walks into
+that block without digging or building. It allows up to 30 seconds to reach the
+portal and then up to 15 seconds for transfer. Success requires the bot's dimension
+to become the Nether, not merely reaching a portal block. Missing or unreachable
+portals and timeouts are reported; if already in the Nether, it does not travel
+back. Send `!stop` to interrupt. Safety modes can still interrupt dangerous travel.
+
+To return, send `!enterOverworld` while the bot is in the Nether. It uses the same
+portal search, entry selection, no-dig/no-build movement, time limits and `!stop`
+handling, and reports success only after the dimension becomes the Overworld. It
+refuses to run outside the Nether. Both commands are human-requested only.
+
+For a local WSL2 smoke test, start your usual local Minecraft server and Mindcraft
+(`nvm use 20.20.2`, then `node main.js`). Use a copy of your test world and an active
+portal with a clear approach. From the Overworld, send `!enterNether` and confirm
+the bot stands inside the purple portal and reports success only after transfer.
+Repeat in the Nether to check the no-travel response. Then, next to the Nether-side
+portal, send `!enterOverworld` and confirm success only after arriving back; sending
+it again in the Overworld should refuse to travel. In the Overworld, also try
+without a nearby portal, with all entries obstructed, and `!stop` during approach
+or the transfer wait. On a local server with Nether travel disabled, verify the
+bounded failure instead of a false success.
+
+### Lava safety
+
+All bots route with one shared hazard-aware pathfinder configuration
+(`src/utils/safe_movements.js`), used by skills, combat (pvp), block collection and the
+pathfinder default. Path nodes in lava (source or flowing) or fire, and floors of lava,
+magma, fire or campfires, are forbidden, including drops and parkour jumps over them; nodes
+beside lava cost extra. Parkour and sprinting are off in the Nether or within 16 blocks of
+lava, and blocks next to liquids are never broken, so collecting obsidian beside lava may be
+refused. If no safe path exists the bot says "No safe path to the goal" and doesn't move.
+Before fighting, the bot moves to safe footing (solid floor,
+no adjacent lava). It doesn't chase enemies standing near lava, and it disengages if no
+safe footing is reachable. If the bot is in lava in the Nether, where water evaporates, it
+climbs onto the nearest safe ground. In the Overworld it tries to get out of the lava before
+using water. These are mitigations: knockback can still push the bot into lava. Run
+`node --experimental-vm-modules --test tests/lava-safety.test.js tests/safe-movements.test.js` for the mocked tests. To
+test live on a copy of a world, have the bot fight a magma cube near a Nether lava lake and
+check that it backs away from the edge instead of following the cube.
+
+Run the isolated portal regression tests with
+`node --experimental-vm-modules --test tests/enter-nether.test.js`.
+They use mocked Mineflayer APIs and do not require a running server or installed
+game dependencies; the local smoke test is still needed to verify real movement.
+
 ### Viewing the bot in a web browser
 
 Mindcraft includes a Prismarine Viewer that shows the Minecraft world from the bot's first-person perspective.
@@ -65,6 +154,10 @@ If the viewer reports "connection refused", check that `render_bot_view` is enab
 The **Start Mindcraft bot** launch configuration selects Node.js **20.20.2** through nvm instead of the system Node executable. Install it with `nvm install 20.20.2` if needed, then start debugging with **F5**. For terminal runs, use `nvm use 20.20.2` before `node main.js`.
 
 An `Unexpected token '.'` error on optional chaining (`?.`) indicates an outdated Node runtime. Check `node --version`; the system `/usr/bin/node` may differ from the version installed through nvm.
+
+### Useful bot management commands (when stuck)
+
+- `/kill <bot_name>`: Force the bot to respawn. This is useful when a bot is stuck in the wrong dimension or cannot recover from pathing issues.
 
 If you encounter issues, check the [FAQ](https://github.com/mindcraft-bots/mindcraft/blob/main/FAQ.md) or find support on [discord](https://discord.gg/mp73p35dzC). We are currently not very responsive to github issues. To run tasks please refer to [Minecollab Instructions](minecollab.md#installation)
 

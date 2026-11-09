@@ -28,6 +28,7 @@ services:
   mindcraft:
     build: .
     environment:
+      DEBUG: "minecraft-protocol"
       SETTINGS_JSON: |
         {"auto_open_ui": false, "host": "minecraft", "port": 25565}
     volumes:

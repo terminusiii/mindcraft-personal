@@ -139,6 +139,20 @@ export const actionsList = [
         })
     },
     {
+        name: '!enterNether',
+        description: 'Enter a nearby active Nether portal. Risky dimension travel: use only when explicitly requested by the human, never autonomously. Searches 64 loaded blocks and waits for confirmed transfer. Use !stop to interrupt.',
+        perform: runAsAction(async (agent) => {
+            await skills.enterNether(agent.bot);
+        })
+    },
+    {
+        name: '!enterOverworld',
+        description: 'From the Nether, enter a nearby active portal back to the Overworld. Risky dimension travel: use only when explicitly requested by the human, never autonomously. Searches 64 loaded blocks and waits for confirmed transfer. Use !stop to interrupt.',
+        perform: runAsAction(async (agent) => {
+            await skills.enterOverworld(agent.bot);
+        })
+    },
+    {
         name: '!searchForEntity',
         description: 'Find and go to the nearest entity of a given type in a given range.',
         params: {
@@ -298,13 +312,25 @@ export const actionsList = [
             await skills.clearNearestFurnace(agent.bot);
         })
     },
-        {
+    {
         name: '!placeHere',
         description: 'Place a given block in the current location. Do NOT use to build structures, only use for single blocks/torches.',
         params: {'type': { type: 'BlockOrItemName', description: 'The block type to place.' }},
         perform: runAsAction(async (agent, type) => {
             let pos = agent.bot.entity.position;
             await skills.placeBlock(agent.bot, type, pos.x, pos.y, pos.z);
+        })
+    },
+    {
+        name: '!plantWheatSeeds',
+        description: 'Till and plant wheat seeds at the given block position.',
+        params: {
+            'x': { type: 'float', description: 'The x coordinate of the soil block.', domain: [-Infinity, Infinity] },
+            'y': { type: 'float', description: 'The y coordinate of the soil block.', domain: [-64, 320] },
+            'z': { type: 'float', description: 'The z coordinate of the soil block.', domain: [-Infinity, Infinity] }
+        },
+        perform: runAsAction(async (agent, x, y, z) => {
+            await skills.tillAndSow(agent.bot, x, y, z, 'wheat_seeds');
         })
     },
     {
