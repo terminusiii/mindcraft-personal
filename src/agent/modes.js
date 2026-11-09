@@ -272,6 +272,26 @@ const modes_list = [
         }
     },
     {
+        name: 'idle_follow',
+        description: 'Follow the nearest non-bot player when idle.',
+        interrupts: [],
+        on: false,
+        active: false,
+        update: async function (agent) {
+            const target = world.getNearestEntityWhere(
+                agent.bot,
+                entity => entity.type === 'player' &&
+                    entity.username !== agent.name &&
+                    !convoManager.isOtherAgent(entity.username),
+                64
+            );
+            if (!target) return;
+            execute(this, agent, async () => {
+                await skills.followPlayer(agent.bot, target.username, 3);
+            });
+        }
+    },
+    {
         name: 'basic_upkeep',
         description: 'When idle, craft missing stone-or-better sword and pickaxe using safe nearby materials.',
         interrupts: [],
@@ -284,18 +304,19 @@ const modes_list = [
                 return;
             }
             if (!upkeepReady(agent, this.upkeep)) return;
-            this.upkeep.nextAttempt = Date.now() + 5 * 60 * 1000;
             execute(this, agent, async () => {
                 try {
                     await maintainTools(agent.bot);
                     say(agent, 'Basic tools ready.');
+                    this.upkeep.lastKey = upkeepKey(agent.bot);
+                    this.upkeep.nextAttempt = Date.now() + 5 * 60 * 1000;
                 } catch (err) {
+                    this.upkeep.nextAttempt = Date.now() + 30 * 1000;
                     if (!agent.bot.interrupt_code) {
                         console.warn('Basic upkeep stopped:', err);
-                        say(agent, `Upkeep stopped: ${err.message}. Waiting for help or a new location.`);
+                        say(agent, `Upkeep stopped: ${err.message}. I will retry soon.`);
                     }
                 } finally {
-                    this.upkeep.lastKey = upkeepKey(agent.bot);
                     this.upkeep.idleSince = Date.now();
                 }
             }, 1);

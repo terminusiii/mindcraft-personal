@@ -1592,7 +1592,7 @@ export async function followPlayer(bot, username, distance=4) {
      * @example
      * await skills.followPlayer(bot, "player");
      **/
-    let player = bot.players[username].entity
+    let player = bot.players[username]?.entity;
     if (!player)
         return false;
 
@@ -1604,9 +1604,27 @@ export async function followPlayer(bot, username, distance=4) {
     bot.pathfinder.setGoal(new pf.goals.GoalFollow(player, distance), true);
     log(bot, `You are now actively following player ${username}.`);
 
+    let missingSince = null;
+    let lastPortalAttempt = 0;
 
     while (!bot.interrupt_code) {
         await new Promise(resolve => setTimeout(resolve, 500));
+        player = bot.players[username]?.entity;
+        if (!player) {
+            missingSince ??= Date.now();
+            const now = Date.now();
+            if (now - missingSince >= 2000 && now - lastPortalAttempt >= 15000) {
+                lastPortalAttempt = now;
+                if (OVERWORLD_DIMENSIONS.includes(bot.game.dimension)) {
+                    await enterNether(bot);
+                } else if (NETHER_DIMENSIONS.includes(bot.game.dimension)) {
+                    await enterOverworld(bot);
+                }
+            }
+            continue;
+        }
+        missingSince = null;
+        bot.pathfinder.setGoal(new pf.goals.GoalFollow(player, distance), true);
         // in cheat mode, if the distance is too far, teleport to the player
         const distance_from_player = bot.entity.position.distanceTo(player.position);
 

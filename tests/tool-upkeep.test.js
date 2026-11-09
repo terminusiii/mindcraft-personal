@@ -265,21 +265,22 @@ test('real mode controller triggers upkeep on idle, stops repetition, and suppor
     assert.equal(messages.length, 1);
     now = 400000;
     await bot.modes.update();
-    assert.equal(calls, 1);
+    await new Promise(setImmediate);
+    assert.equal(calls, 2);
     bot.modes.setOn('basic_upkeep', false);
     bot.entity.position.x = 9;
     await bot.modes.update();
-    assert.equal(calls, 1);
+    assert.equal(calls, 2);
     bot.modes.setOn('basic_upkeep', true);
     now += 10000;
     conversation = true;
     await bot.modes.update();
-    assert.equal(calls, 1);
+    assert.equal(calls, 2);
     conversation = false;
     now += 10000;
     await bot.modes.update();
     await new Promise(setImmediate);
-    assert.equal(calls, 2);
+    assert.equal(calls, 3);
 });
 
 test('message boundary stops upkeep before handling a human order, and always clears busy guard', async () => {

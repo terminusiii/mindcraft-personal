@@ -155,6 +155,10 @@ The **Start Mindcraft bot** launch configuration selects Node.js **20.20.2** thr
 
 An `Unexpected token '.'` error on optional chaining (`?.`) indicates an outdated Node runtime. Check `node --version`; the system `/usr/bin/node` may differ from the version installed through nvm.
 
+### Useful bot management commands (when stuck)
+
+- `/kill <bot_name>`: Force the bot to respawn. This is useful when a bot is stuck in the wrong dimension or cannot recover from pathing issues.
+
 If you encounter issues, check the [FAQ](https://github.com/mindcraft-bots/mindcraft/blob/main/FAQ.md) or find support on [discord](https://discord.gg/mp73p35dzC). We are currently not very responsive to github issues. To run tasks please refer to [Minecollab Instructions](minecollab.md#installation)
 
 

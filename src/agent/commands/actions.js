@@ -312,13 +312,25 @@ export const actionsList = [
             await skills.clearNearestFurnace(agent.bot);
         })
     },
-        {
+    {
         name: '!placeHere',
         description: 'Place a given block in the current location. Do NOT use to build structures, only use for single blocks/torches.',
         params: {'type': { type: 'BlockOrItemName', description: 'The block type to place.' }},
         perform: runAsAction(async (agent, type) => {
             let pos = agent.bot.entity.position;
             await skills.placeBlock(agent.bot, type, pos.x, pos.y, pos.z);
+        })
+    },
+    {
+        name: '!plantWheatSeeds',
+        description: 'Till and plant wheat seeds at the given block position.',
+        params: {
+            'x': { type: 'float', description: 'The x coordinate of the soil block.', domain: [-Infinity, Infinity] },
+            'y': { type: 'float', description: 'The y coordinate of the soil block.', domain: [-64, 320] },
+            'z': { type: 'float', description: 'The z coordinate of the soil block.', domain: [-Infinity, Infinity] }
+        },
+        perform: runAsAction(async (agent, x, y, z) => {
+            await skills.tillAndSow(agent.bot, x, y, z, 'wheat_seeds');
         })
     },
     {

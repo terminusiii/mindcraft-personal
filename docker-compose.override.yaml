@@ -4,6 +4,7 @@ services:
     # Enable insecure coding explicitly for this test
     environment:
       INSECURE_CODING: "1"
+      DEBUG: "minecraft-protocol"
       NODE_OPTIONS: "--dns-result-order=ipv4first"
       SETTINGS_JSON: |
         {
