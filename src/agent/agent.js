@@ -16,13 +16,14 @@ import { serverProxy, sendOutputToServer } from './mindserver_proxy.js';
 import settings from './settings.js';
 import { Task } from './tasks/tasks.js';
 import { speak } from './speak.js';
-import { log, validateNameFormat, handleDisconnection } from './connection_handler.js';
+import { log, validateNameFormat, handleDisconnection, logConnectionEvent } from './connection_handler.js';
 
 export class Agent {
     async start(load_mem=false, init_message=null, count_id=0) {
         this.last_sender = null;
         this.count_id = count_id;
         this._disconnectHandled = false;
+        this._hasSpawned = false;
 
         // Initialize components
         this.actions = new ActionManager(this);
@@ -66,25 +67,38 @@ export class Agent {
         this.bot = initBot(this.name);
         
         // Connection Handler
-        const onDisconnect = (event, reason) => {
+        const onDisconnect = (reason, trigger = 'unknown') => {
             if (this._disconnectHandled) return;
             this._disconnectHandled = true;
 
-            // Log and Analyze
-            // handleDisconnection handles logging to console and server
-            const { type } = handleDisconnection(this.name, reason);
-     
-            process.exit(1);
+            const { msg, retryable } = handleDisconnection(this.name, reason, { source: 'minecraft', trigger });
+            logConnectionEvent(this.name, 'disconnect_action', {
+                trigger,
+                retryable,
+                action: retryable ? 'restart' : 'stop',
+            }, retryable ? 'warn' : 'error');
+            if (retryable) {
+                this.cleanKill(`${msg} Retrying connection...`, 1);
+            } else {
+                this.cleanKill(msg, 0);
+            }
         };
         
         // Bind events
-        this.bot.once('kicked', (reason) => onDisconnect('Kicked', reason));
-        this.bot.once('end', (reason) => onDisconnect('Disconnected', reason));
+        this.bot.once('kicked', (reason) => onDisconnect(reason, 'kicked'));
+        this.bot.once('end', (reason) => onDisconnect(reason, 'end'));
         this.bot.on('error', (err) => {
-            if (String(err).includes('Duplicate') || String(err).includes('ECONNREFUSED')) {
-                 onDisconnect('Error', err);
+            const errText = String(err);
+            const shouldFailFastBeforeSpawn = !this._hasSpawned
+                && /(econnrefused|econnreset|etimedout|keepalive|socket hang up|epipe|broken pipe)/i.test(errText);
+            if (/duplicate/i.test(errText) || shouldFailFastBeforeSpawn) {
+                 onDisconnect(errText, 'error');
             } else {
-                 log(this.name, `[LoginGuard] Connection Error: ${String(err)}`);
+                 logConnectionEvent(this.name, 'error_warning', {
+                    phase: this._hasSpawned ? 'runtime' : 'startup',
+                    reason: errText,
+                 }, 'warn');
+                 log(this.name, `[LoginGuard] Transient connection warning: ${errText}`);
             }
         });
 
@@ -92,6 +106,7 @@ export class Agent {
 
         this.bot.on('login', () => {
             console.log(this.name, 'logged in!');
+            logConnectionEvent(this.name, 'login', { phase: 'minecraft' }, 'info');
             serverProxy.login();
             
             // Set skin for profile, requires Fabric Tailor. (https://modrinth.com/mod/fabrictailor)
@@ -103,12 +118,17 @@ export class Agent {
 		const spawnTimeoutDuration = settings.spawn_timeout;
         const spawnTimeout = setTimeout(() => {
             const msg = `Bot has not spawned after ${spawnTimeoutDuration} seconds. Exiting.`;
+            logConnectionEvent(this.name, 'spawn_timeout', {
+                timeout_seconds: spawnTimeoutDuration,
+            }, 'error');
             log(this.name, msg);
             process.exit(1);
         }, spawnTimeoutDuration * 1000);
         this.bot.once('spawn', async () => {
             try {
+                this._hasSpawned = true;
                 clearTimeout(spawnTimeout);
+                logConnectionEvent(this.name, 'spawn', { phase: 'minecraft' }, 'info');
                 addBrowserViewer(this.bot, count_id);
                 console.log('Initializing vision intepreter...');
                 this.vision_interpreter = new VisionInterpreter(this, settings.allow_vision);
@@ -469,21 +489,9 @@ export class Agent {
             console.error('Error event!', err);
         });
         // Use connection handler for runtime disconnects
-        this.bot.on('end', (reason) => {
-            if (!this._disconnectHandled) {
-                const { msg } = handleDisconnection(this.name, reason);
-                this.cleanKill(msg);
-            }
-        });
         this.bot.on('death', () => {
             this.actions.cancelResume();
             this.actions.stop();
-        });
-        this.bot.on('kicked', (reason) => {
-            if (!this._disconnectHandled) {
-                const { msg } = handleDisconnection(this.name, reason);
-                this.cleanKill(msg);
-            }
         });
         this.bot.on('messagestr', async (message, _, jsonMsg) => {
             if (jsonMsg.translate && jsonMsg.translate.startsWith('death') && message.startsWith(this.name)) {
@@ -542,9 +550,17 @@ export class Agent {
     
 
     cleanKill(msg='Killing agent process...', code=1) {
-        this.history.add('system', msg);
-        this.bot.chat(code > 1 ? 'Restarting.': 'Exiting.');
-        this.history.save();
+        try {
+            this.history.add('system', msg);
+            this.history.save();
+        } catch (err) {
+            console.error('Failed to persist shutdown message:', err);
+        }
+        try {
+            this.bot.chat(code > 1 ? 'Restarting.' : 'Exiting.');
+        } catch (err) {
+            console.warn('Failed to send shutdown chat message:', err);
+        }
         process.exit(code);
     }
     async checkTaskDone() {

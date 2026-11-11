@@ -28,7 +28,7 @@ const ERROR_DEFINITIONS = {
         isFatal: false
     },
     'network_error': {
-        keywords: ['timeout', 'timed out', 'connection lost', 'reset', 'refused', 'keepalive'],
+        keywords: ['timeout', 'timed out', 'connection lost', 'reset', 'refused', 'keepalive', 'epipe', 'broken pipe'],
         msg: 'Network Error: Connection timed out or was lost.',
         isFatal: false
     },
@@ -38,6 +38,33 @@ const ERROR_DEFINITIONS = {
         isFatal: true
     }
 };
+
+const RETRYABLE_TYPES = new Set(['network_error', 'server_full', 'maintenance']);
+
+function encodeConnValue(value) {
+    if (value === undefined || value === null) return 'null';
+    const text = String(value);
+    if (/^[a-zA-Z0-9_.:/-]+$/.test(text)) {
+        return text;
+    }
+    return JSON.stringify(text);
+}
+
+export function logConnectionEvent(agentName, event, fields = {}, level = 'error') {
+    const entries = Object.entries(fields)
+        .filter(([, value]) => value !== undefined)
+        .map(([key, value]) => `${key}=${encodeConnValue(value)}`);
+    const parts = ['[CONN]', `agent=${encodeConnValue(agentName || 'system')}`, `event=${encodeConnValue(event)}`, ...entries];
+    const line = parts.join(' ');
+    if (level === 'warn') {
+        console.warn(line);
+    } else if (level === 'info') {
+        console.log(line);
+    } else {
+        console.error(line);
+    }
+    try { sendOutputToServer(agentName || 'system', line); } catch (_) {}
+}
 
 // Helper to log messages to console (once) and MindServer.
 export const log = (agentName, msg) => {
@@ -70,17 +97,48 @@ export function parseKickReason(reason) {
     return { type: 'other', msg: `Disconnected: ${fallback}`, isFatal: true };
 }
 
+export function getDisconnectionPolicy(reason, options = {}) {
+    const source = options.source || 'minecraft';
+    if (source === 'mindserver') {
+        return {
+            type: 'mindserver_disconnect',
+            msg: 'MindServer connection was lost.',
+            isFatal: false,
+            retryable: true
+        };
+    }
+
+    const parsed = parseKickReason(reason);
+    return {
+        type: parsed.type,
+        msg: parsed.msg,
+        isFatal: parsed.isFatal,
+        retryable: RETRYABLE_TYPES.has(parsed.type) || !parsed.isFatal
+    };
+}
+
 // Centralized handler for disconnections.
-export function handleDisconnection(agentName, reason) {
-    const { type, msg } = parseKickReason(reason);
+export function handleDisconnection(agentName, reason, options = {}) {
+    const { type, msg, isFatal, retryable } = getDisconnectionPolicy(reason, options);
+    const source = options.source || 'minecraft';
+    const trigger = options.trigger || 'unknown';
     
     // Format: [LoginGuard] Error Message
     const finalMsg = `[LoginGuard] ${msg}`;
+
+    logConnectionEvent(agentName, 'disconnect', {
+        source,
+        trigger,
+        type,
+        fatal: isFatal,
+        retryable,
+        reason: typeof reason === 'string' ? reason : JSON.stringify(reason),
+    }, 'error');
     
     // Only call log once (it handles console printing)
     log(agentName, finalMsg);
     
-    return { type, msg: finalMsg };
+    return { type, msg: finalMsg, isFatal, retryable };
 }
 
 // Validates name format.

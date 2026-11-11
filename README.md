@@ -159,6 +159,49 @@ An `Unexpected token '.'` error on optional chaining (`?.`) indicates an outdate
 
 - `/kill <bot_name>`: Force the bot to respawn. This is useful when a bot is stuck in the wrong dimension or cannot recover from pathing issues.
 
+### Grepping and saving connection logs
+
+Connection lifecycle logs are emitted in structured form:
+
+`[CONN] agent=<name> event=<event> key=value ...`
+
+Useful commands:
+
+```bash
+# Save all structured connection logs
+docker compose logs mindcraft --no-color | grep '\[CONN\]' > conn.log
+
+# Follow live logs and append to file
+docker compose logs -f mindcraft --no-color | grep '\[CONN\]' | tee -a conn-live.log
+
+# Keep only disconnect and retry flow
+docker compose logs mindcraft --no-color \
+  | grep -E 'event=disconnect|event=disconnect_action|event=restart_scheduled|event=restart_exhausted' \
+  > conn-disconnects.log
+
+# One bot only (example: andy)
+docker compose logs mindcraft --no-color | grep '\[CONN\]' | grep 'agent=andy' > andy-conn.log
+
+# Last 30 minutes (if supported by your docker version)
+docker compose logs mindcraft --since 30m --no-color | grep '\[CONN\]' > conn-last-30m.log
+
+# Add local timestamps while following
+docker compose logs -f mindcraft --no-color \
+  | grep '\[CONN\]' \
+  | awk '{ print strftime("[%Y-%m-%d %H:%M:%S]"), $0; fflush(); }' \
+  | tee -a conn-timestamped.log
+```
+
+Quick summaries:
+
+```bash
+# Event frequency
+grep -o 'event=[^ ]*' conn.log | sort | uniq -c | sort -nr
+
+# Agent frequency
+grep -o 'agent=[^ ]*' conn.log | sort | uniq -c | sort -nr
+```
+
 If you encounter issues, check the [FAQ](https://github.com/mindcraft-bots/mindcraft/blob/main/FAQ.md) or find support on [discord](https://discord.gg/mp73p35dzC). We are currently not very responsive to github issues. To run tasks please refer to [Minecollab Instructions](minecollab.md#installation)
 
 

@@ -6,6 +6,23 @@ import { getFullState } from './library/full_state.js';
 // agent's individual connection to the mindserver
 // always connect to localhost
 
+function logConn(agentName, event, fields = {}, level = 'info') {
+    const encode = (value) => {
+        if (value === undefined || value === null) return 'null';
+        const text = String(value);
+        if (/^[a-zA-Z0-9_.:/-]+$/.test(text)) return text;
+        return JSON.stringify(text);
+    };
+    const details = Object.entries(fields)
+        .filter(([, value]) => value !== undefined)
+        .map(([key, value]) => `${key}=${encode(value)}`)
+        .join(' ');
+    const line = `[CONN] agent=${encode(agentName || 'unknown')} event=${encode(event)}${details ? ` ${details}` : ''}`;
+    if (level === 'warn') console.warn(line);
+    else if (level === 'error') console.error(line);
+    else console.log(line);
+}
+
 class MindServerProxy {
     constructor() {
         if (MindServerProxy.instance) {
@@ -22,24 +39,67 @@ class MindServerProxy {
         if (this.connected) return;
         
         this.name = name;
-        this.socket = io(`http://localhost:${port}`);
-
-        await new Promise((resolve, reject) => {
-            this.socket.on('connect', resolve);
-            this.socket.on('connect_error', (err) => {
-                console.error('Connection failed:', err);
-                reject(err);
-            });
+        this.socket = io(`http://127.0.0.1:${port}`, {
+            reconnection: true,
+            reconnectionAttempts: Infinity,
+            reconnectionDelay: 1000,
+            reconnectionDelayMax: 10000,
+            randomizationFactor: 0.4,
+            timeout: 10000,
+            transports: ['websocket'],
+            upgrade: false,
         });
 
-        this.connected = true;
-        console.log(name, 'connected to MindServer');
+        this.socket.on('connect', () => {
+            const wasConnected = this.connected;
+            this.connected = true;
+            if (wasConnected) {
+                console.log(name, 'reconnected to MindServer');
+                logConn(name, 'mindserver_reconnect', { port }, 'warn');
+            } else {
+                console.log(name, 'connected to MindServer');
+                logConn(name, 'mindserver_connect', { port }, 'info');
+            }
 
-        this.socket.on('disconnect', () => {
-            console.log('Disconnected from MindServer');
+            this.socket.emit('connect-agent-process', name);
+            if (this.agent?.bot?.player) {
+                this.login();
+            }
+        });
+
+        await new Promise((resolve, reject) => {
+            let lastError = null;
+            const timeout = setTimeout(() => {
+                this.socket.off('connect', onConnect);
+                this.socket.off('connect_error', onConnectError);
+                reject(lastError || new Error('MindServer connection timed out'));
+            }, 30000);
+
+            const onConnect = () => {
+                clearTimeout(timeout);
+                this.socket.off('connect', onConnect);
+                this.socket.off('connect_error', onConnectError);
+                resolve();
+            };
+
+            const onConnectError = (err) => {
+                lastError = err;
+                logConn(name, 'mindserver_connect_error', {
+                    reason: err?.message || String(err),
+                }, 'warn');
+                console.error('Connection attempt failed:', err?.message || err);
+            };
+
+            this.socket.on('connect', onConnect);
+            this.socket.on('connect_error', onConnectError);
+        });
+
+        this.socket.on('disconnect', (reason) => {
+            logConn(name, 'mindserver_disconnect', { reason }, 'warn');
+            console.log('Disconnected from MindServer:', reason);
             this.connected = false;
-            if (this.agent) {
-                this.agent.cleanKill('Disconnected from MindServer. Killing agent process.');
+            if (reason === 'io server disconnect') {
+                this.socket.connect();
             }
         });
 
@@ -91,7 +151,6 @@ class MindServerProxy {
                     return reject(new Error(response.error));
                 }
                 setSettings(response.settings);
-                this.socket.emit('connect-agent-process', name);
                 resolve();
             });
         });
