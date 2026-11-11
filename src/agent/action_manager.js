@@ -11,6 +11,21 @@ export class ActionManager {
         this.recent_action_counter = 0;
     }
 
+    _forceCancelStuckAction(reason) {
+        console.error(reason);
+        this.cancelResume();
+        this.executing = false;
+        this.currentActionLabel = '';
+        this.currentActionFn = null;
+        this.agent.bot.interrupt_code = true;
+        try {
+            this.agent.history.add('system', reason);
+            this.agent.history.save();
+        } catch (err) {
+            console.warn('Failed to persist stuck-action cancellation message:', err);
+        }
+    }
+
     async resumeAction(actionFn, timeout) {
         return this._executeResume(actionFn, timeout);
     }
@@ -25,15 +40,19 @@ export class ActionManager {
 
     async stop() {
         if (!this.executing) return;
-        const timeout = setTimeout(() => {
-            this.agent.cleanKill('Code execution refused stop after 10 seconds. Killing process.');
-        }, 10000);
+        const stopTimeoutMs = 15000;
+        const startedAt = Date.now();
         while (this.executing) {
+            if (Date.now() - startedAt > stopTimeoutMs) {
+                this._forceCancelStuckAction(
+                    `Code execution refused stop after ${Math.floor(stopTimeoutMs / 1000)} seconds. Force-canceling action without restarting process.`
+                );
+                break;
+            }
             this.agent.requestInterrupt();
             console.log('waiting for code to finish executing...');
             await new Promise(resolve => setTimeout(resolve, 300));
         }
-        clearTimeout(timeout);
     } 
 
     cancelResume() {

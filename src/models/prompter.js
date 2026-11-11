@@ -211,6 +211,38 @@ export class Prompter {
         this.last_prompt_time = Date.now();
     }
 
+    _encodeMetricValue(value) {
+        if (value === undefined || value === null) return 'null';
+        const text = String(value);
+        if (/^[a-zA-Z0-9_.:/-]+$/.test(text)) return text;
+        return JSON.stringify(text);
+    }
+
+    _getModelName(kind) {
+        if (kind === 'coding') return this.profile.code_model || this.profile.model;
+        if (kind === 'vision') return this.profile.vision_model || this.profile.model;
+        if (kind === 'memSaving' || kind === 'botResponder') return this.profile.model;
+        return this.profile.model;
+    }
+
+    _logPromptLatency(kind, startedAt, fields = {}, level = 'info') {
+        const base = {
+            agent: this.agent?.name || this.profile?.name || 'unknown',
+            kind,
+            model: this._getModelName(kind),
+            duration_ms: Date.now() - startedAt,
+            ...fields,
+        };
+        const details = Object.entries(base)
+            .filter(([, value]) => value !== undefined)
+            .map(([key, value]) => `${key}=${this._encodeMetricValue(value)}`)
+            .join(' ');
+        const line = `[AI_LATENCY] ${details}`;
+        if (level === 'warn') console.warn(line);
+        else if (level === 'error') console.error(line);
+        else console.log(line);
+    }
+
     async promptConvo(messages) {
         this.most_recent_msg_time = Date.now();
         let current_msg_time = this.most_recent_msg_time;
@@ -224,9 +256,16 @@ export class Prompter {
             let prompt = this.profile.conversing;
             prompt = await this.replaceStrings(prompt, messages, this.convo_examples);
             let generation;
+            const startedAt = Date.now();
 
             try {
                 generation = await this.chat_model.sendRequest(messages, prompt);
+                this._logPromptLatency('conversation', startedAt, {
+                    status: 'ok',
+                    prompt_chars: prompt.length,
+                    message_count: messages.length,
+                    response_chars: typeof generation === 'string' ? generation.length : null,
+                }, 'info');
                 if (typeof generation !== 'string') {
                     console.error('Error: Generated response is not a string', generation);
                     throw new Error('Generated response is not a string');
@@ -235,6 +274,12 @@ export class Prompter {
                 await this._saveLog(prompt, messages, generation, 'conversation');
 
             } catch (error) {
+                this._logPromptLatency('conversation', startedAt, {
+                    status: 'error',
+                    prompt_chars: prompt.length,
+                    message_count: messages.length,
+                    error: error?.message || String(error),
+                }, 'error');
                 console.error('Error during message generation or file writing:', error);
                 continue;
             }
@@ -271,7 +316,14 @@ export class Prompter {
         let prompt = this.profile.coding;
         prompt = await this.replaceStrings(prompt, messages, this.coding_examples);
 
+        const startedAt = Date.now();
         let resp = await this.code_model.sendRequest(messages, prompt);
+        this._logPromptLatency('coding', startedAt, {
+            status: 'ok',
+            prompt_chars: prompt.length,
+            message_count: messages.length,
+            response_chars: typeof resp === 'string' ? resp.length : null,
+        }, 'info');
         this.awaiting_coding = false;
         await this._saveLog(prompt, messages, resp, 'coding');
         return resp;
@@ -281,7 +333,14 @@ export class Prompter {
         await this.checkCooldown();
         let prompt = this.profile.saving_memory;
         prompt = await this.replaceStrings(prompt, null, null, to_summarize);
+        const startedAt = Date.now();
         let resp = await this.chat_model.sendRequest([], prompt);
+        this._logPromptLatency('memSaving', startedAt, {
+            status: 'ok',
+            prompt_chars: prompt.length,
+            summarize_turns: Array.isArray(to_summarize) ? to_summarize.length : null,
+            response_chars: typeof resp === 'string' ? resp.length : null,
+        }, 'info');
         await this._saveLog(prompt, to_summarize, resp, 'memSaving');
         if (resp?.includes('</think>')) {
             const [_, afterThink] = resp.split('</think>')
@@ -296,7 +355,14 @@ export class Prompter {
         let messages = this.agent.history.getHistory();
         messages.push({role: 'user', content: new_message});
         prompt = await this.replaceStrings(prompt, null, null, messages);
+        const startedAt = Date.now();
         let res = await this.chat_model.sendRequest([], prompt);
+        this._logPromptLatency('botResponder', startedAt, {
+            status: 'ok',
+            prompt_chars: prompt.length,
+            message_count: messages.length,
+            response_chars: typeof res === 'string' ? res.length : null,
+        }, 'info');
         return res.trim().toLowerCase() === 'respond';
     }
 
@@ -304,7 +370,15 @@ export class Prompter {
         await this.checkCooldown();
         let prompt = this.profile.image_analysis;
         prompt = await this.replaceStrings(prompt, messages, null, null, null);
-        return await this.vision_model.sendVisionRequest(messages, prompt, imageBuffer);
+        const startedAt = Date.now();
+        const resp = await this.vision_model.sendVisionRequest(messages, prompt, imageBuffer);
+        this._logPromptLatency('vision', startedAt, {
+            status: 'ok',
+            prompt_chars: prompt.length,
+            message_count: messages.length,
+            response_chars: typeof resp === 'string' ? resp.length : null,
+        }, 'info');
+        return resp;
     }
 
     async promptGoalSetting(messages, last_goals) {
@@ -317,7 +391,14 @@ export class Prompter {
         user_message = await this.replaceStrings(user_message, messages, null, null, last_goals);
         let user_messages = [{role: 'user', content: user_message}];
 
+        const startedAt = Date.now();
         let res = await this.chat_model.sendRequest(user_messages, system_message);
+        this._logPromptLatency('goalSetting', startedAt, {
+            status: 'ok',
+            prompt_chars: system_message.length + user_message.length,
+            message_count: user_messages.length,
+            response_chars: typeof res === 'string' ? res.length : null,
+        }, 'info');
 
         let goal = null;
         try {
