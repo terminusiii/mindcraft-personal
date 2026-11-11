@@ -202,6 +202,51 @@ grep -o 'event=[^ ]*' conn.log | sort | uniq -c | sort -nr
 grep -o 'agent=[^ ]*' conn.log | sort | uniq -c | sort -nr
 ```
 
+### Grepping and saving AI latency logs
+
+Prompt/response timing logs are emitted in structured form:
+
+`[AI_LATENCY] agent=<name> kind=<kind> model=<model> duration_ms=<ms> status=<ok|error> ...`
+
+Useful commands:
+
+```bash
+# Save all AI latency logs
+docker compose logs mindcraft --no-color | grep '\[AI_LATENCY\]' > ai-latency.log
+
+# Follow live latency logs and append to file
+docker compose logs -f mindcraft --no-color | grep '\[AI_LATENCY\]' | tee -a ai-latency-live.log
+
+# Focus on slower calls (>3000 ms)
+grep '\[AI_LATENCY\]' ai-latency.log \
+  | awk 'match($0,/duration_ms=([0-9]+)/,a){ if (a[1] > 3000) print $0 }' \
+  > ai-latency-slow.log
+
+# Per bot (example: andy)
+docker compose logs mindcraft --no-color | grep '\[AI_LATENCY\]' | grep 'agent=andy' > andy-ai-latency.log
+
+# Last 30 minutes (if supported by your docker version)
+docker compose logs mindcraft --since 30m --no-color | grep '\[AI_LATENCY\]' > ai-latency-last-30m.log
+```
+
+Quick summaries:
+
+```bash
+# Count by prompt kind (conversation/coding/vision/etc.)
+grep -o 'kind=[^ ]*' ai-latency.log | sort | uniq -c | sort -nr
+
+# Average latency by kind
+awk '
+  match($0,/kind=([^ ]+)/,k) && match($0,/duration_ms=([0-9]+)/,d) {
+    sum[k[1]] += d[1];
+    count[k[1]]++;
+  }
+  END {
+    for (kind in sum) printf "%s avg_ms=%.1f n=%d\n", kind, sum[kind]/count[kind], count[kind];
+  }
+' ai-latency.log
+```
+
 If you encounter issues, check the [FAQ](https://github.com/mindcraft-bots/mindcraft/blob/main/FAQ.md) or find support on [discord](https://discord.gg/mp73p35dzC). We are currently not very responsive to github issues. To run tasks please refer to [Minecollab Instructions](minecollab.md#installation)
 
 

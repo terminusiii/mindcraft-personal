@@ -2,6 +2,6 @@
     "name": "andy",
 
     "model": "gpt-5.4-mini",
-    "modes": { "basic_upkeep": true, "idle_follow": true }
+    "modes": { "basic_upkeep": false, "idle_follow": false }
 
 }
