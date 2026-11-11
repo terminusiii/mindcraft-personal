@@ -5,7 +5,7 @@ services:
       - "127.0.0.1:25565:25565"
     environment:
       EULA: "TRUE"
-      TYPE: "VANILLA"
+      TYPE: "${MINECRAFT_TYPE:-PAPER}"
       VERSION: "1.21.8"
       MEMORY: "4G"
       MODE: "survival"
@@ -18,6 +18,7 @@ services:
       EXTRA_ARGS: "--safeMode"
     volumes:
       - ${MINECRAFT_DATA_DIR:-./minecraft-data}:/data
+      - ./minecraft-config/bukkit.yml:/data/bukkit.yml:ro
     restart: unless-stopped
     healthcheck:
       test: mc-health
