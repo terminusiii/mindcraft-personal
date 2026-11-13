@@ -1,6 +1,7 @@
 import * as skills from '../library/skills.js';
 import settings from '../settings.js';
 import convoManager from '../conversation.js';
+import { logConnectionEvent } from '../connection_handler.js';
 
 
 function runAsAction (actionFn, resume = false, timeout = -1) {
@@ -11,6 +12,16 @@ function runAsAction (actionFn, resume = false, timeout = -1) {
         if (!actionLabel) {
             const actionObj = actionsList.find(a => a.perform === wrappedAction);
             actionLabel = actionObj.name.substring(1); // Remove the ! prefix
+        }
+
+        if (agent.actions.executing) {
+            const currentAction = agent.actions.currentActionLabel || 'unknown';
+            logConnectionEvent(agent.name, 'action_guard_blocked', {
+                requested_action: `action:${actionLabel}`,
+                active_action: currentAction,
+                reason: 'action_overcrowded',
+            }, 'warn');
+            return `Action guard: '${actionLabel}' was blocked because '${currentAction}' is still running. Use !stop first if you want to interrupt it.`;
         }
 
         const actionFnWithAgent = async () => {
@@ -37,6 +48,15 @@ export const actionsList = [
             if (!settings.allow_insecure_coding) { 
                 agent.openChat('newAction is disabled. Enable with allow_insecure_coding=true in settings.js');
                 return "newAction not allowed! Code writing is disabled in settings. Notify the user.";
+            }
+            if (agent.actions.executing) {
+                const currentAction = agent.actions.currentActionLabel || 'unknown';
+                logConnectionEvent(agent.name, 'action_guard_blocked', {
+                    requested_action: 'action:newAction',
+                    active_action: currentAction,
+                    reason: 'action_overcrowded',
+                }, 'warn');
+                return `Action guard: 'newAction' was blocked because '${currentAction}' is still running. Use !stop first if you want to interrupt it.`;
             }
             let result = "";
             const actionFn = async () => {
@@ -177,8 +197,9 @@ export const actionsList = [
         params: {'name': { type: 'string', description: 'The name to remember the location as.' }},
         perform: async function (agent, name) {
             const pos = agent.bot.entity.position;
-            agent.memory_bank.rememberPlace(name, pos.x, pos.y, pos.z);
-            return `Location saved as "${name}".`;
+            const dimension = agent.bot.game.dimension;
+            await agent.memory_bank.rememberPlace(name, pos.x, pos.y, pos.z, dimension);
+            return `Waypoint "${name}" saved in ${dimension}.`;
         }
     },
     {
@@ -186,12 +207,16 @@ export const actionsList = [
         description: 'Go to a saved location.',
         params: {'name': { type: 'string', description: 'The name of the location to go to.' }},
         perform: runAsAction(async (agent, name) => {
-            const pos = agent.memory_bank.recallPlace(name);
+            const pos = await agent.memory_bank.recallPlace(name);
             if (!pos) {
-            skills.log(agent.bot, `No location named "${name}" saved.`);
-            return;
+                skills.log(agent.bot, `No waypoint named "${name}" is saved.`);
+                return;
             }
-            await skills.goToPosition(agent.bot, pos[0], pos[1], pos[2], 1);
+            if (agent.bot.game.dimension !== pos.dimension) {
+                skills.log(agent.bot, `Waypoint "${name}" is in ${pos.dimension}, but the bot is in ${agent.bot.game.dimension}. Dimension travel is not automatic.`);
+                return;
+            }
+            await skills.goToPosition(agent.bot, pos.x, pos.y, pos.z, 1);
         })
     },
     {

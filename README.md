@@ -159,6 +159,14 @@ An `Unexpected token '.'` error on optional chaining (`?.`) indicates an outdate
 
 - `/kill <bot_name>`: Force the bot to respawn. This is useful when a bot is stuck in the wrong dimension or cannot recover from pathing issues.
 
+### Shared waypoints
+
+- `!rememberHere("name")`: Save the bot's current coordinates and dimension as a shared waypoint.
+- `!savedPlaces`: List shared waypoint names and dimensions.
+- `!goToRememberedPlace("name")`: Navigate to a waypoint when the bot is already in its dimension. Dimension travel is not automatic.
+
+Waypoints are stored in `data/waypoints.geojson`, shared by all bot processes, and can be opened directly in QGIS. GeoJSON point coordinates use Minecraft x/z; the y coordinate and dimension are stored as feature properties. The Docker Compose setup mounts `./data` from the host so the file persists across container recreation and remains accessible to QGIS.
+
 ### Grepping and saving connection logs
 
 Connection lifecycle logs are emitted in structured form:
@@ -354,7 +362,7 @@ or simply
 docker compose up --build
 ```
 
-The Compose setup starts a Minecraft Java server alongside Mindcraft. It uses the `itzg/minecraft-server` image and the settings shown above, waits for the server to become healthy before starting Mindcraft, and stores world data in `minecraft-data/`. Stop any separately running server first to avoid a port conflict. To reuse an existing world, set `MINECRAFT_DATA_DIR` to that server's `data` directory; for example: `MINECRAFT_DATA_DIR=/path/to/minecraft-server/data docker compose up --build`. The server is available on `127.0.0.1:25565` from the host. To stop both services, run `docker compose down`; the world data is retained.
+The Compose setup starts a Minecraft Java server alongside Mindcraft. It uses the `itzg/minecraft-server` image and the settings shown above, waits for the server to become healthy before starting Mindcraft, and stores world data in `minecraft-data/`. By default it runs **Paper** (`MINECRAFT_TYPE=PAPER`) for better bot-debug stability/tunability; override with `MINECRAFT_TYPE=VANILLA` if you want vanilla behavior. It also bind-mounts `minecraft-config/bukkit.yml` so debug-friendly Paper settings (including low reconnect throttling) are reproducible in git. Stop any separately running server first to avoid a port conflict. To reuse an existing world, set `MINECRAFT_DATA_DIR` to that server's `data` directory; for example: `MINECRAFT_DATA_DIR=/path/to/minecraft-server/data docker compose up --build`. The server is available on `127.0.0.1:25565` from the host. To stop both services, run `docker compose down`; the world data is retained.
 
 > [!Note]
 > The Minecraft server container requires EULA acceptance. If it gets stuck restarting, set EULA in the mounted data directory and recreate the container:
