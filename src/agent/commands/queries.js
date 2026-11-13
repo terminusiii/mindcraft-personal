@@ -221,9 +221,11 @@ export const queryList = [
     },
     {
         name: '!savedPlaces',
-        description: 'List all saved locations.',
+        description: 'List all shared saved waypoints and their dimensions.',
         perform: async function (agent) {
-            return "Saved place names: " + agent.memory_bank.getKeys();
+            const places = await agent.memory_bank.getPlaces();
+            if (places.length === 0) return 'No saved waypoints.';
+            return 'Saved waypoints: ' + places.map(place => `${place.name} (${place.dimension})`).join(', ');
         }
     }, 
     {

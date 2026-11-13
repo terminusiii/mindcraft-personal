@@ -31,12 +31,21 @@ export class AgentProcess {
             maxAttempts: 6,
             resetAfterMs: 2 * 60 * 1000,
             baseDelayMs: 1500,
+            minDelayMs: 4000,
             maxDelayMs: 15000,
             jitterMs: 1200
         };
     }
 
     start(load_memory=false, init_message=null, count_id=0) {
+        if (this.running && this.process && !this.process.killed) {
+            connLog(this.name, 'process_start_skipped', { reason: 'already_running' }, 'warn');
+            return;
+        }
+        if (this.restartTimer) {
+            clearTimeout(this.restartTimer);
+            this.restartTimer = null;
+        }
         this.count_id = count_id;
         this.running = true;
         connLog(this.name, 'process_start', { load_memory, count_id }, 'info');
@@ -89,7 +98,7 @@ export class AgentProcess {
                     this.retryConfig.baseDelayMs * (2 ** (this.restartAttempts - 1))
                 );
                 const jitterMs = Math.floor(Math.random() * this.retryConfig.jitterMs);
-                const delayMs = backoffMs + jitterMs;
+                const delayMs = Math.max(this.retryConfig.minDelayMs, backoffMs + jitterMs);
                 connLog(this.name, 'restart_scheduled', {
                     attempt: this.restartAttempts,
                     max_attempts: this.retryConfig.maxAttempts,

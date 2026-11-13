@@ -496,14 +496,30 @@ export class Agent {
         this.bot.on('messagestr', async (message, _, jsonMsg) => {
             if (jsonMsg.translate && jsonMsg.translate.startsWith('death') && message.startsWith(this.name)) {
                 console.log('Agent died: ', message);
-                let death_pos = this.bot.entity.position;
-                this.memory_bank.rememberPlace('last_death_position', death_pos.x, death_pos.y, death_pos.z);
+                const death_pos = this.bot.entity.position;
+                const dimension = this.bot.game.dimension;
+                const waypointName = `last_death_position_${this.name}`;
+                let waypointSaved = false;
+                try {
+                    await this.memory_bank.rememberPlace(
+                        waypointName,
+                        death_pos.x,
+                        death_pos.y,
+                        death_pos.z,
+                        dimension
+                    );
+                    waypointSaved = true;
+                } catch (error) {
+                    console.error(`Failed to save ${this.name}'s last death waypoint:`, error);
+                }
                 let death_pos_text = null;
                 if (death_pos) {
                     death_pos_text = `x: ${death_pos.x.toFixed(2)}, y: ${death_pos.y.toFixed(2)}, z: ${death_pos.z.toFixed(2)}`;
                 }
-                let dimention = this.bot.game.dimension;
-                this.handleMessage('system', `You died at position ${death_pos_text || "unknown"} in the ${dimention} dimension with the final message: '${message}'. Your place of death is saved as 'last_death_position' if you want to return. Previous actions were stopped and you have respawned.`);
+                const waypointMessage = waypointSaved
+                    ? `Your place of death is saved as '${waypointName}' if you want to return.`
+                    : 'Saving your death waypoint failed; check the logs.';
+                this.handleMessage('system', `You died at position ${death_pos_text || "unknown"} in the ${dimension} dimension with the final message: '${message}'. ${waypointMessage} Previous actions were stopped and you have respawned.`);
             }
         });
         this.bot.on('idle', () => {
@@ -550,6 +566,10 @@ export class Agent {
     
 
     cleanKill(msg='Killing agent process...', code=1) {
+        logConnectionEvent(this.name, 'process_exit_request', {
+            code,
+            reason: msg,
+        }, code === 0 ? 'info' : 'warn');
         try {
             this.history.add('system', msg);
             this.history.save();
